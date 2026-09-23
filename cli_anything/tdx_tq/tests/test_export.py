@@ -10,7 +10,7 @@ from pathlib import Path
 import sys
 import tempfile
 
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 from cli_anything.tdx_tq.core.export import export_dataframe, export_dict
 
 

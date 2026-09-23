@@ -222,6 +222,11 @@ pytest -v --tb=short
 - ✓ test_config_get_status
 - ✓ test_config_validate_paths
 
+**test_session.py (3 测试)**
+- ✓ test_session_singleton
+- ✓ test_session_initial_state
+- ✓ test_session_initialize_and_close
+
 **test_output.py (9 测试)**
 - ✓ test_to_json_dict
 - ✓ test_to_json_dataframe
@@ -233,39 +238,45 @@ pytest -v --tb=short
 - ✓ test_format_output_json
 - ✓ test_format_output_text
 
-**test_export.py (4 测试)**
+**test_export.py (5 测试)**
 - ✓ test_export_dataframe_csv
 - ✓ test_export_dataframe_json
 - ✓ test_export_dataframe_invalid_format
 - ✓ test_export_dict_csv
 - ✓ test_export_dict_with_prefix
 
-### E2E 测试结果
+### E2E 真实数据与命令测试结果
 
-**test_full_e2e.py (8 测试)**
+**test_full_e2e.py (13 测试)**
 - ✓ TestCLIBase::test_cli_version
 - ✓ TestCLIBase::test_cli_help
 - ✓ TestCLIBase::test_cli_status
 - ✓ TestCLIMarket::test_market_get_help
 - ✓ TestCLIMarket::test_market_snapshot_help
+- ✓ TestCLIMarket::test_market_snapshot_live (实测真实行情快照)
+- ✓ TestCLIMarket::test_market_get_live (实测真实K线数据与日期保留)
 - ✓ TestCLIStock::test_stock_info_help
+- ✓ TestCLIStock::test_stock_info_live (实测真实股票属性与中文解码)
+- ✓ TestCLIStock::test_stock_search_live (实测真实名称模糊匹配)
 - ✓ TestCLISector::test_sector_list_help
-- ✓ TestCLISubprocess::test_cli_installed
+- ✓ TestCLISector::test_sector_list_live (实测真实行业板块数据)
+- ✓ TestCLIFormula::test_formula_list_live (实测通达信公式列表)
 
 ### 测试覆盖率
 
 | 模块 | 测试数 | 通过数 | 覆盖率 |
 |------|--------|--------|--------|
 | config.py | 4 | 4 | 100% |
+| session.py | 3 | 3 | 100% |
 | output.py | 9 | 9 | 100% |
 | export.py | 5 | 5 | 100% |
-| CLI 命令 | 8 | 8 | 100% |
-| **总计** | **26** | **26** | **100%** |
+| CLI 综合与实测 | 13 | 13 | 100% |
+| **总计** | **34** | **34** | **100%** |
 
 ### 测试摘要
 
 ```
-============================= 26 passed in 9.42s ==============================
+============================= 34 passed in 14.84s =============================
 ```
 
-所有测试通过！CLI 功能完整，可以投入使用。
+所有 34 个单元测试与真实数据 E2E 测试全部 100% 通过！CLI 功能完备，数据获取无缝通畅。

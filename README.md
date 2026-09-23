@@ -7,7 +7,7 @@
 ### 前置条件
 
 1. **通达信客户端**：已启动并登录
-2. **通达信安装路径**：默认 `D:\new_tdx64`，可通过环境变量 `TDX_PATH` 修改
+2. **通达信安装路径**：默认 `D:\tdx`，可通过环境变量 `TDX_PATH` 修改
 3. **Python 3.8+**
 
 ### 安装步骤
@@ -144,7 +144,7 @@ cli-anything-tdx-tq stock info -s 600487.SH --json
 
 | 变量 | 说明 | 默认值 |
 |------|------|--------|
-| `TDX_PATH` | 通达信安装路径 | `D:\new_tdx64` |
+| `TDX_PATH` | 通达信安装路径 | `D:\tdx` |
 
 ## 输出格式
 
@@ -167,7 +167,7 @@ cli-anything-tdx-tq stock info -s 600487.SH --json
 确保：
 1. 通达信客户端已启动并登录
 2. 通达信安装路径正确
-3. `D:\new_tdx64\PYPlugins\sys\tqcenter.py` 存在
+3. `D:\tdx\PYPlugins\sys\tqcenter.py` 存在
 
 ### 错误：模块未找到
 

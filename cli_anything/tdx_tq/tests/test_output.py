@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 import sys
 
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 from cli_anything.tdx_tq.utils.output import to_json, format_table, format_output
 
 

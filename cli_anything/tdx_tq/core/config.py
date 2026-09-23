@@ -13,11 +13,10 @@ class Config:
     """CLI 配置管理类"""
 
     # 默认通达信路径
-    DEFAULT_TDX_PATH = r'D:\new_tdx64'
+    DEFAULT_TDX_PATH = r'D:\tdx'
 
-    # 默认插件路径
-    DEFAULT_PYPLUGINS_PATH = r'D:\new_tdx64\PYPlugins'
-    DEFAULT_SYS_PATH = r'D:\new_tdx64\PYPlugins\sys'
+    DEFAULT_PYPLUGINS_PATH = r'D:\tdx\PYPlugins'
+    DEFAULT_SYS_PATH = r'D:\tdx\PYPlugins\sys'
 
     def __init__(self):
         self._tdx_path: Optional[str] = None
@@ -37,12 +36,12 @@ class Config:
     @property
     def pyplugins_path(self) -> str:
         """获取插件路径"""
-        return self._pyplugins_path or self.DEFAULT_PYPLUGINS_PATH
+        return self._pyplugins_path or os.path.join(self.tdx_path, 'PYPlugins')
 
     @property
     def sys_path(self) -> str:
         """获取系统插件路径"""
-        return self._sys_path or self.DEFAULT_SYS_PATH
+        return self._sys_path or os.path.join(self.pyplugins_path, 'sys')
 
     def validate_paths(self) -> bool:
         """验证路径是否存在"""

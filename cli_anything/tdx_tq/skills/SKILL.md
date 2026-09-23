@@ -11,13 +11,12 @@ version: 1.0.0
 ## 前置条件
 
 1. **通达信客户端**：必须已启动并登录
-2. **通达信安装**：默认路径 `D:\new_tdx64`
+2. **通达信安装**：默认路径 `D:\tdx`
 3. **Python 环境**：Python 3.8+
 
 ## 安装
 
 ```bash
-cd D:/TDX-SKILL/tdx-tq-sdk/cli_agent
 pip install -e .
 ```
 

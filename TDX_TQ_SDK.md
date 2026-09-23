@@ -10,8 +10,8 @@ tdx-tq-sdk
 
 ### 前置条件
 1. 通达信客户端已启动并登录
-2. 通达信安装在 `D:\new_tdx64`
-3. TQ 策略模块位于 `D:\new_tdx64\PYPlugins\sys\tqcenter.py`
+2. 通达信安装在 `D:\tdx`
+3. TQ 策略模块位于 `D:\tdx\PYPlugins\sys\tqcenter.py`
 
 ### 核心功能域
 
