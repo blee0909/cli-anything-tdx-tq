@@ -247,9 +247,9 @@ pytest -v --tb=short
 
 ### E2E 真实数据与命令测试结果
 
-**test_full_e2e.py (13 测试)**
+**test_full_e2e.py (17 测试)**
 - ✓ TestCLIBase::test_cli_version
-- ✓ TestCLIBase::test_cli_help
+- ✓ TestCLIBase::test_cli_help (包含 client, trade 等全功能组)
 - ✓ TestCLIBase::test_cli_status
 - ✓ TestCLIMarket::test_market_get_help
 - ✓ TestCLIMarket::test_market_snapshot_help
@@ -258,9 +258,13 @@ pytest -v --tb=short
 - ✓ TestCLIStock::test_stock_info_help
 - ✓ TestCLIStock::test_stock_info_live (实测真实股票属性与中文解码)
 - ✓ TestCLIStock::test_stock_search_live (实测真实名称模糊匹配)
+- ✓ TestCLIStock::test_stock_gb_live (实测股本变动信息与有效交易日匹配)
 - ✓ TestCLISector::test_sector_list_help
 - ✓ TestCLISector::test_sector_list_live (实测真实行业板块数据)
 - ✓ TestCLIFormula::test_formula_list_live (实测通达信公式列表)
+- ✓ TestCLITrade::test_trade_help (实测交易命令帮助)
+- ✓ TestCLITrade::test_trade_account_live (实测交易账户状态查询)
+- ✓ TestCLITrade::test_trade_order_preview (实测交易委托安全预览模式)
 
 ### 测试覆盖率
 
@@ -270,13 +274,13 @@ pytest -v --tb=short
 | session.py | 3 | 3 | 100% |
 | output.py | 9 | 9 | 100% |
 | export.py | 5 | 5 | 100% |
-| CLI 综合与实测 | 13 | 13 | 100% |
-| **总计** | **34** | **34** | **100%** |
+| CLI 综合与实测 | 17 | 17 | 100% |
+| **总计** | **38** | **38** | **100%** |
 
 ### 测试摘要
 
 ```
-============================= 34 passed in 14.84s =============================
+============================= 38 passed in 20.77s =============================
 ```
 
-所有 34 个单元测试与真实数据 E2E 测试全部 100% 通过！CLI 功能完备，数据获取无缝通畅。
+所有 38 个单元测试与真实数据 E2E 测试全部 100% 通过！CLI 基础底座已完成现代化打包规范、多进程配置持久化、参数自适应交易日补全、GUI 联动以及实盘交易闭环能力的升级。

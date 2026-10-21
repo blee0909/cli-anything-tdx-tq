@@ -88,6 +88,20 @@ def _patch_tqcenter_module(mod):
                 setattr(dll, func_name, make_wrapper(orig_func))
         setattr(dll, '_gbk_patched', True)
 
+    # 3. 补丁修复通达信官方 tqcenter.get_kzz_info 在无数据时空列表越界崩溃 (IndexError)
+    tq_cls = getattr(mod, 'tq', None)
+    if tq_cls is not None and not getattr(tq_cls, '_kzz_patched', False):
+        orig_get_kzz = getattr(tq_cls, 'get_kzz_info', None)
+        if orig_get_kzz is not None:
+            def safe_get_kzz_info(cls, stock_code: str = '', field_list=None):
+                try:
+                    res = orig_get_kzz(stock_code=stock_code, field_list=field_list or [])
+                    return res if isinstance(res, dict) else {}
+                except Exception:
+                    return {}
+            setattr(tq_cls, 'get_kzz_info', classmethod(safe_get_kzz_info))
+            setattr(tq_cls, '_kzz_patched', True)
+
 
 try:
     import tqcenter
@@ -191,6 +205,26 @@ class Session:
         """确保已初始化"""
         if not self.is_initialized:
             self.initialize()
+
+    def get_recent_trading_dates(self, count: int = 5, market: str = 'AG') -> list:
+        """获取最近 N 个交易日列表 (带自动容错回退)"""
+        self.ensure_initialized()
+        try:
+            dates = self.tdx.get_trading_dates(market=market, start_time='', end_time='', count=count)
+            if dates and len(dates) >= count:
+                return dates[-count:]
+            elif dates:
+                return dates
+        except Exception:
+            pass
+
+        import datetime
+        now = datetime.datetime.now()
+        fallback_dates = []
+        for i in range(count):
+            d = now - datetime.timedelta(days=i)
+            fallback_dates.append(d.strftime('%Y%m%d'))
+        return fallback_dates[::-1]
 
     def __del__(self):
         if self._initialized:

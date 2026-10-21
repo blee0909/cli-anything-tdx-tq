@@ -63,8 +63,37 @@ def _reformat_kline_data(raw_data: Dict[str, Any]) -> Dict[str, List[Dict[str, A
     return result
 
 
+def _handle_error(ctx, err: Exception, as_json: bool = False, prefix: str = "操作失败"):
+    """统一的错误处理，支持人类可读与结构化 JSON 输出"""
+    if as_json:
+        err_obj = {
+            "success": False,
+            "error": str(err),
+            "error_type": type(err).__name__
+        }
+        click.echo(json.dumps(err_obj, ensure_ascii=False, indent=2))
+    else:
+        click.echo(click.style(f"{prefix}：{err}", fg='red'), err=True)
+    ctx.exit(1)
+
+
+def _parse_stock_list(stocks_input: str) -> List[str]:
+    """解析股票代码列表，支持逗号分隔、空格分隔或从标准输入管道读取 ('-')"""
+    if stocks_input.strip() == '-':
+        raw = sys.stdin.read()
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, list):
+                return [str(s).strip() for s in parsed if str(s).strip()]
+        except Exception:
+            pass
+        tokens = raw.replace('\n', ',').replace(' ', ',').split(',')
+        return [t.strip() for t in tokens if t.strip()]
+    return [s.strip() for s in stocks_input.split(',') if s.strip()]
+
+
 @click.group()
-@click.version_option(version='1.0.0', prog_name='cli-anything-tdx-tq')
+@click.version_option(version='1.1.0', prog_name='cli-anything-tdx-tq')
 @click.option('--tdx-path', envvar='TDX_PATH', help='通达信安装路径 (默认 D:\\tdx)')
 @click.pass_context
 def cli(ctx, tdx_path: Optional[str]):
@@ -116,7 +145,7 @@ def market():
 
 
 @market.command('get')
-@click.option('--stocks', '-s', required=True, help='股票代码列表，逗号分隔 (例: 600519.SH,000001.SZ)')
+@click.option('--stocks', '-s', required=True, help='股票代码列表，逗号分隔或管道输入 (例: 600519.SH,000001.SZ 或 -)')
 @click.option('--period', '-p', default='1d', help='周期 (tick,1m,5m,15m,30m,60m,1d,1w,1mon)')
 @click.option('--count', '-c', default=60, type=int, help='获取数量 (默认 60)')
 @click.option('--dividend', '-d', type=click.Choice(['none', 'front', 'back']), default='front', help='复权类型 (默认 front)')
@@ -127,10 +156,12 @@ def market():
 @click.pass_context
 def market_get(ctx, stocks: str, period: str, count: int, dividend: str,
                start: Optional[str], end: Optional[str], output: Optional[str], as_json: bool):
-    """获取 K 线历史数据 (完整保留交易日期与 OHLCV 指标)"""
+    """获取 K 线历史数据 (完整保留交易日期与 OHLCV 指标，支持管道输入)"""
     try:
         session.ensure_initialized()
-        stock_list = [s.strip() for s in stocks.split(',') if s.strip()]
+        stock_list = _parse_stock_list(stocks)
+        if not stock_list:
+            raise ValueError("未指定有效的股票代码")
         data = session.tdx.get_market_data(
             stock_list=stock_list,
             period=period,
@@ -165,29 +196,42 @@ def market_get(ctx, stocks: str, period: str, count: int, dividend: str,
                 else:
                     click.echo("暂无数据")
     except Exception as e:
-        click.echo(click.style(f"获取 K 线数据失败：{e}", fg='red'), err=True)
-        ctx.exit(1)
+        _handle_error(ctx, e, as_json, "获取 K 线数据失败")
 
 
 @market.command('snapshot')
-@click.option('--stock', '-s', required=True, help='股票代码 (例: 600519.SH)')
+@click.option('--stock', '-s', required=True, help='股票代码，支持单只/多只/管道输入 (例: 600519.SH 或 -)')
 @click.option('--json', 'as_json', is_flag=True, help='以 JSON 格式输出')
 @click.pass_context
 def market_snapshot(ctx, stock: str, as_json: bool):
-    """获取实时五档行情快照"""
+    """获取实时五档行情快照 (支持多代码与管道输入)"""
     try:
         session.ensure_initialized()
-        snapshot = session.tdx.get_market_snapshot(stock.strip())
+        stk_list = _parse_stock_list(stock)
+        if not stk_list:
+            raise ValueError("未指定有效的股票代码")
 
-        if as_json:
-            click.echo(json.dumps(snapshot, ensure_ascii=False, indent=2))
+        if len(stk_list) == 1:
+            snapshot = session.tdx.get_market_snapshot(stk_list[0])
+            if as_json:
+                click.echo(json.dumps(snapshot, ensure_ascii=False, indent=2))
+            else:
+                click.echo(f"=== {stk_list[0]} 实时快照 ===")
+                for k, v in snapshot.items():
+                    click.echo(f"{k}: {v}")
         else:
-            click.echo(f"=== {stock} 实时快照 ===")
-            for k, v in snapshot.items():
-                click.echo(f"{k}: {v}")
+            snapshots = {}
+            for s in stk_list:
+                snapshots[s] = session.tdx.get_market_snapshot(s)
+            if as_json:
+                click.echo(json.dumps(snapshots, ensure_ascii=False, indent=2))
+            else:
+                for s, snap in snapshots.items():
+                    click.echo(f"\n=== {s} 实时快照 ===")
+                    for k, v in snap.items():
+                        click.echo(f"{k}: {v}")
     except Exception as e:
-        click.echo(click.style(f"获取行情快照失败：{e}", fg='red'), err=True)
-        ctx.exit(1)
+        _handle_error(ctx, e, as_json, "获取行情快照失败")
 
 
 @market.command('divid')
@@ -431,28 +475,41 @@ def stock_search(ctx, keyword: str, as_json: bool):
 
 
 @stock.command('gb')
-@click.option('--stock', '-s', required=True, help='股票代码')
+@click.option('--stock', '-s', required=True, help='股票代码 (例: 600519.SH)')
 @click.option('--count', '-c', default=5, type=int, help='获取记录数 (默认 5)')
+@click.option('--dates', '-d', help='指定交易日期列表，逗号分隔 (如 20261020,20261019)')
 @click.option('--json', 'as_json', is_flag=True, help='以 JSON 格式输出')
 @click.pass_context
-def stock_gb(ctx, stock: str, count: int, as_json: bool):
-    """获取股本变动历史信息"""
+def stock_gb(ctx, stock: str, count: int, dates: Optional[str], as_json: bool):
+    """获取股本变动历史信息 (自动匹配有效交易日，支持自定义日期)"""
     try:
         session.ensure_initialized()
-        data = session.tdx.get_gb_info(stock_code=stock.strip(), count=count)
+        if dates:
+            date_list = [d.strip() for d in dates.split(',') if d.strip()]
+        else:
+            date_list = session.get_recent_trading_dates(count=count)
+
+        # 确保 date_list 长度至少为 count
+        while len(date_list) < count:
+            date_list.append(date_list[-1] if date_list else '20260101')
+
+        data = session.tdx.get_gb_info(stock_code=stock.strip(), date_list=date_list[:count], count=count)
 
         if as_json:
             click.echo(json.dumps(data, ensure_ascii=False, indent=2))
         else:
-            click.echo(f"=== {stock} 股本信息 ===")
-            click.echo(data)
+            click.echo(f"=== {stock} 股本变动历史 ({len(data)} 条) ===")
+            if data:
+                df = pd.DataFrame(data)
+                click.echo(df.to_string(index=False))
+            else:
+                click.echo("暂无股本信息")
     except Exception as e:
-        click.echo(click.style(f"获取股本信息失败：{e}", fg='red'), err=True)
-        ctx.exit(1)
+        _handle_error(ctx, e, as_json, "获取股本信息失败")
 
 
 @stock.command('kzz')
-@click.option('--stock', '-s', required=True, help='可转债代码 (例: 123054.SZ)')
+@click.option('--stock', '-s', required=True, help='可转债代码 (例: 113050.SH)')
 @click.option('--json', 'as_json', is_flag=True, help='以 JSON 格式输出')
 @click.pass_context
 def stock_kzz(ctx, stock: str, as_json: bool):
@@ -465,11 +522,13 @@ def stock_kzz(ctx, stock: str, as_json: bool):
             click.echo(json.dumps(data, ensure_ascii=False, indent=2))
         else:
             click.echo(f"=== 可转债: {stock} ===")
-            for k, v in data.items():
-                click.echo(f"{k}: {v}")
+            if data:
+                for k, v in data.items():
+                    click.echo(f"{k}: {v}")
+            else:
+                click.echo("暂无可转债数据或该债券已到期退市")
     except Exception as e:
-        click.echo(click.style(f"获取可转债信息失败：{e}", fg='red'), err=True)
-        ctx.exit(1)
+        _handle_error(ctx, e, as_json, "获取可转债信息失败")
 
 
 # ==================== 板块数据命令组 ====================
@@ -587,8 +646,34 @@ def sector_update_stocks(ctx, code: str, stocks: str):
         res = session.tdx.send_user_block(block_code=code.strip(), stock_list=stock_list, show=True)
         click.echo(click.style(f"板块成分股已更新 ({len(stock_list)} 只): {res}", fg='green'))
     except Exception as e:
-        click.echo(click.style(f"更新板块成分股失败：{e}", fg='red'), err=True)
-        ctx.exit(1)
+        _handle_error(ctx, e, False, "更新板块成分股失败")
+
+
+@sector.command('rename')
+@click.option('--code', '-c', required=True, help='自定义板块代码')
+@click.option('--name', '-n', required=True, help='自定义板块新名称')
+@click.pass_context
+def sector_rename(ctx, code: str, name: str):
+    """重命名自定义板块"""
+    try:
+        session.ensure_initialized()
+        res = session.tdx.rename_sector(block_code=code.strip(), block_name=name.strip())
+        click.echo(click.style(f"板块重命名成功: {res}", fg='green'))
+    except Exception as e:
+        _handle_error(ctx, e, False, "重命名板块失败")
+
+
+@sector.command('clear')
+@click.option('--code', '-c', required=True, help='自定义板块代码')
+@click.pass_context
+def sector_clear(ctx, code: str):
+    """清空自定义板块内所有成分股"""
+    try:
+        session.ensure_initialized()
+        res = session.tdx.clear_sector(block_code=code.strip())
+        click.echo(click.style(f"板块已成功清空: {res}", fg='green'))
+    except Exception as e:
+        _handle_error(ctx, e, False, "清空板块失败")
 
 
 # ==================== 财务数据命令组 ====================
@@ -839,8 +924,288 @@ def formula_xg(ctx, name: str, args: str, stocks: Optional[str], period: str, co
             click.echo(f"=== 选股公式: {name} 筛选结果 ===")
             click.echo(result)
     except Exception as e:
-        click.echo(click.style(f"调用选股公式失败：{e}", fg='red'), err=True)
-        ctx.exit(1)
+        _handle_error(ctx, e, as_json, "调用选股公式失败")
+
+
+# ==================== 客户端联动与预警命令组 ====================
+
+@cli.group()
+def client():
+    """通达信桌面端 GUI 联动与预警通知 (联动看盘、预警弹窗、消息推送)"""
+    pass
+
+
+@client.command('link')
+@click.option('--stock', '-s', required=True, help='联动跳转的股票代码 (例: 600519.SH)')
+@click.option('--json', 'as_json', is_flag=True, help='以 JSON 格式输出')
+@click.pass_context
+def client_link(ctx, stock: str, as_json: bool):
+    """联动通达信客户端窗口切换并展示指定股票 K 线行情"""
+    try:
+        session.ensure_initialized()
+        stk_clean = stock.strip()
+        code_pure = stk_clean.split('.')[0] if '.' in stk_clean else stk_clean
+        url = f"tdx://stock?code={code_pure}"
+        res = session.tdx.exec_to_tdx(url=url)
+        if as_json:
+            click.echo(json.dumps({"success": True, "action": "link", "stock": stk_clean, "raw": res}, ensure_ascii=False, indent=2))
+        else:
+            click.echo(click.style(f"已向通达信客户端发送联动看盘指令 -> {stk_clean}", fg='green'))
+    except Exception as e:
+        _handle_error(ctx, e, as_json, "联动客户端失败")
+
+
+@client.command('warn')
+@click.option('--stock', '-s', required=True, help='预警股票代码 (例: 600519.SH)')
+@click.option('--message', '-m', required=True, help='预警提示内容')
+@click.option('--price', '-p', default='0.0', help='当前触发价格')
+@click.option('--json', 'as_json', is_flag=True, help='以 JSON 格式输出')
+@click.pass_context
+def client_warn(ctx, stock: str, message: str, price: str, as_json: bool):
+    """向通达信桌面端发送右下角交易预警弹窗"""
+    try:
+        import datetime
+        session.ensure_initialized()
+        now_time = datetime.datetime.now().strftime('%H%M%S')
+        stk_clean = stock.strip()
+        res = session.tdx.send_warn(
+            stock_list=[stk_clean],
+            time_list=[now_time],
+            price_list=[str(price)],
+            close_list=[str(price)],
+            volum_list=['0'],
+            bs_flag_list=['0'],
+            warn_type_list=['1'],
+            reason_list=[message.strip()],
+            count=1
+        )
+        if as_json:
+            click.echo(json.dumps({"success": True, "action": "warn", "stock": stk_clean, "raw": res}, ensure_ascii=False, indent=2))
+        else:
+            click.echo(click.style(f"预警已发送至客户端 -> {stk_clean}: {message}", fg='green'))
+    except Exception as e:
+        _handle_error(ctx, e, as_json, "发送预警失败")
+
+
+@client.command('msg')
+@click.option('--message', '-m', required=True, help='消息内容')
+@click.option('--json', 'as_json', is_flag=True, help='以 JSON 格式输出')
+@click.pass_context
+def client_msg(ctx, message: str, as_json: bool):
+    """向通达信桌面端发送文字通知消息"""
+    try:
+        session.ensure_initialized()
+        res = session.tdx.send_message(msg_str=message.strip())
+        if as_json:
+            click.echo(json.dumps({"success": True, "action": "msg", "message": message, "raw": res}, ensure_ascii=False, indent=2))
+        else:
+            click.echo(click.style(f"消息已发送至客户端: {message}", fg='green'))
+    except Exception as e:
+        _handle_error(ctx, e, as_json, "发送消息失败")
+
+
+# ==================== 实盘与模拟交易命令组 ====================
+
+@cli.group()
+def trade():
+    """交易与账户管理命令 (账户查询、资产、持仓、委托、下单与撤单)"""
+    pass
+
+
+@trade.command('account')
+@click.option('--json', 'as_json', is_flag=True, help='以 JSON 格式输出')
+@click.pass_context
+def trade_account(ctx, as_json: bool):
+    """查询通达信当前登录的交易账户 ID 与状态"""
+    try:
+        session.ensure_initialized()
+        acc_id = session.tdx.stock_account()
+        logged_in = (acc_id is not None and acc_id >= 0)
+        res = {
+            "account_id": acc_id if logged_in else None,
+            "logged_in": logged_in,
+            "message": "交易账户已就绪" if logged_in else "通达信客户端交易账户未登录"
+        }
+        if as_json:
+            click.echo(json.dumps(res, ensure_ascii=False, indent=2))
+        else:
+            if logged_in:
+                click.echo(click.style(f"当前交易账户 ID: {acc_id} [已登录]", fg='green'))
+            else:
+                click.echo(click.style("当前未登录交易账户，请在通达信客户端登录交易账户后操作。", fg='yellow'))
+    except Exception as e:
+        _handle_error(ctx, e, as_json, "获取账户状态失败")
+
+
+@trade.command('asset')
+@click.option('--account-id', '-a', type=int, default=None, help='账户 ID (默认使用当前登录账户)')
+@click.option('--json', 'as_json', is_flag=True, help='以 JSON 格式输出')
+@click.pass_context
+def trade_asset(ctx, account_id: Optional[int], as_json: bool):
+    """查询账户总资产、可用资金与可取资金"""
+    try:
+        session.ensure_initialized()
+        if account_id is None:
+            account_id = session.tdx.stock_account()
+        if account_id is None or account_id < 0:
+            raise TdxError("未检测到有效登录的交易账户，请先在通达信客户端登录交易账户")
+
+        asset_data = session.tdx.query_stock_asset(account_id=account_id)
+        if as_json:
+            click.echo(json.dumps(asset_data, ensure_ascii=False, indent=2))
+        else:
+            click.echo(f"=== 账户 {account_id} 资产明细 ===")
+            for k, v in asset_data.items():
+                click.echo(f"{k}: {v}")
+    except Exception as e:
+        _handle_error(ctx, e, as_json, "查询资产失败")
+
+
+@trade.command('positions')
+@click.option('--account-id', '-a', type=int, default=None, help='账户 ID (默认使用当前登录账户)')
+@click.option('--json', 'as_json', is_flag=True, help='以 JSON 格式输出')
+@click.pass_context
+def trade_positions(ctx, account_id: Optional[int], as_json: bool):
+    """查询股票持仓明细 (股票代码、持仓量、可用量、成本价、盈亏)"""
+    try:
+        session.ensure_initialized()
+        if account_id is None:
+            account_id = session.tdx.stock_account()
+        if account_id is None or account_id < 0:
+            raise TdxError("未检测到有效登录的交易账户，请先在通达信客户端登录交易账户")
+
+        pos_list = session.tdx.query_stock_positions(account_id=account_id)
+        if as_json:
+            click.echo(json.dumps(pos_list, ensure_ascii=False, indent=2))
+        else:
+            click.echo(f"=== 账户 {account_id} 持仓列表 ({len(pos_list)} 只) ===")
+            if pos_list:
+                df = pd.DataFrame(pos_list)
+                click.echo(df.to_string(index=False))
+            else:
+                click.echo("当前无持仓股票")
+    except Exception as e:
+        _handle_error(ctx, e, as_json, "查询持仓失败")
+
+
+@trade.command('orders')
+@click.option('--account-id', '-a', type=int, default=None, help='账户 ID')
+@click.option('--stock', '-s', default='', help='筛选指定股票代码')
+@click.option('--cancelable-only', is_flag=True, help='仅查询可撤单委托')
+@click.option('--json', 'as_json', is_flag=True, help='以 JSON 格式输出')
+@click.pass_context
+def trade_orders(ctx, account_id: Optional[int], stock: str, cancelable_only: bool, as_json: bool):
+    """查询当日委托与成交订单明细"""
+    try:
+        session.ensure_initialized()
+        if account_id is None:
+            account_id = session.tdx.stock_account()
+        if account_id is None or account_id < 0:
+            raise TdxError("未检测到有效登录的交易账户，请先在通达信客户端登录交易账户")
+
+        orders = session.tdx.query_stock_orders(
+            account_id=account_id,
+            stock_code=stock.strip(),
+            cancelable_only=cancelable_only
+        )
+        if as_json:
+            click.echo(json.dumps(orders, ensure_ascii=False, indent=2))
+        else:
+            click.echo(f"=== 账户 {account_id} 委托订单 ({len(orders)} 条) ===")
+            if orders:
+                df = pd.DataFrame(orders)
+                click.echo(df.to_string(index=False))
+            else:
+                click.echo("无委托记录")
+    except Exception as e:
+        _handle_error(ctx, e, as_json, "查询委托订单失败")
+
+
+@trade.command('order')
+@click.option('--stock', '-s', required=True, help='股票代码 (例: 600519.SH)')
+@click.option('--type', '-t', 'order_type', type=click.Choice(['buy', 'sell']), required=True, help='买卖方向 (buy/sell)')
+@click.option('--volume', '-v', required=True, type=int, help='委托数量 (股，如 100)')
+@click.option('--price', '-p', type=float, default=0.0, help='委托价格 (0 表示市价/当前价)')
+@click.option('--price-type', default=0, type=int, help='报价方式 (0=限价, 1=市价等)')
+@click.option('--account-id', '-a', type=int, default=None, help='账户 ID')
+@click.option('--confirm', is_flag=True, help='确认提交 (未指定则为安全预览模式)')
+@click.option('--json', 'as_json', is_flag=True, help='以 JSON 格式输出')
+@click.pass_context
+def trade_order(ctx, stock: str, order_type: str, volume: int, price: float,
+                price_type: int, account_id: Optional[int], confirm: bool, as_json: bool):
+    """提交股票买卖委托 (默认需 --confirm 确认防止误操作)"""
+    try:
+        session.ensure_initialized()
+        if account_id is None:
+            account_id = session.tdx.stock_account()
+        if account_id is None or account_id < 0:
+            raise TdxError("未检测到有效登录的交易账户，请先在通达信客户端登录交易账户")
+
+        if not confirm:
+            preview = {
+                "status": "preview",
+                "warning": "这是安全预览模式，未实际发送交易指令。如需下单请加上 --confirm 参数",
+                "order": {
+                    "account_id": account_id,
+                    "stock": stock.strip(),
+                    "direction": order_type,
+                    "volume": volume,
+                    "price": price,
+                    "price_type": price_type
+                }
+            }
+            if as_json:
+                click.echo(json.dumps(preview, ensure_ascii=False, indent=2))
+            else:
+                click.echo(click.style("[安全预览模式] 待提交订单：", fg='yellow'))
+                click.echo(f"  账户: {account_id}")
+                click.echo(f"  股票: {stock} | 方向: {order_type} | 数量: {volume} | 价格: {price}")
+                click.echo(click.style("若确认下单，请追加 --confirm 参数执行提交。", fg='cyan'))
+            return
+
+        direction_code = 0 if order_type == 'buy' else 1
+        res = session.tdx.order_stock(
+            account_id=account_id,
+            stock_code=stock.strip(),
+            order_type=direction_code,
+            order_volume=volume,
+            price_type=price_type,
+            price=price
+        )
+        if as_json:
+            click.echo(json.dumps({"success": True, "order_result": res}, ensure_ascii=False, indent=2))
+        else:
+            click.echo(click.style(f"委托已提交: {res}", fg='green'))
+    except Exception as e:
+        _handle_error(ctx, e, as_json, "下单失败")
+
+
+@trade.command('cancel')
+@click.option('--order-id', '-o', required=True, help='待撤订单号')
+@click.option('--stock', '-s', default='', help='对应股票代码')
+@click.option('--account-id', '-a', type=int, default=None, help='账户 ID')
+@click.option('--json', 'as_json', is_flag=True, help='以 JSON 格式输出')
+@click.pass_context
+def trade_cancel(ctx, order_id: str, stock: str, account_id: Optional[int], as_json: bool):
+    """撤销已提交的委托订单"""
+    try:
+        session.ensure_initialized()
+        if account_id is None:
+            account_id = session.tdx.stock_account()
+        if account_id is None or account_id < 0:
+            raise TdxError("未检测到有效登录的交易账户，请先在通达信客户端登录交易账户")
+
+        res = session.tdx.cancel_order_stock(
+            account_id=account_id,
+            stock_code=stock.strip(),
+            order_id=order_id.strip()
+        )
+        if as_json:
+            click.echo(json.dumps({"success": True, "cancel_result": res}, ensure_ascii=False, indent=2))
+        else:
+            click.echo(click.style(f"撤单指令已发送: {res}", fg='green'))
+    except Exception as e:
+        _handle_error(ctx, e, as_json, "撤单失败")
 
 
 # ==================== 配置与状态命令组 ====================
@@ -868,9 +1233,10 @@ def config_show(ctx):
 @click.option('--tdx-path', required=True, help='通达信安装路径 (如 D:\\tdx)')
 @click.pass_context
 def config_set(ctx, tdx_path: str):
-    """设置通达信安装路径"""
+    """设置通达信安装路径 (自动持久化至 ~/.tdx_tq/config.json)"""
     config.tdx_path = tdx_path
-    click.echo(click.style(f"通达信路径已成功设置为：{tdx_path}", fg='green'))
+    saved_file = config.save()
+    click.echo(click.style(f"通达信路径已成功设置为：{tdx_path} (已持久化保存至 {saved_file})", fg='green'))
 
 
 @cli.command()

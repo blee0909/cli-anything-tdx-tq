@@ -103,22 +103,31 @@ cli-anything-tdx-tq stock info -s 600487.SH --json
 | `init` | 初始化连接 |
 | `close` | 关闭连接 |
 | `status` | 查看状态 |
-| `config` | 配置管理 |
+| `config` | 配置管理 (支持 ~/.tdx_tq/config.json 持久化) |
+
+> 快捷提示：可以使用短别名 `tdx-tq` 替代长命令 `cli-anything-tdx-tq`。支持标准输入管道（例如 `echo 600519.SH | tdx-tq market snapshot -s - --json`）。
 
 ### market - 行情数据
 
 | 命令 | 说明 |
 |------|------|
-| `market get` | 获取 K 线数据 |
-| `market snapshot` | 获取实时行情快照 |
+| `market get` | 获取 K 线数据 (完整保留日期与 OHLCV) |
+| `market snapshot` | 获取实时行情快照 (支持多代码与管道) |
 | `market divid` | 获取除权除息数据 |
+| `market zdt` | 获取股票涨跌停价格与停牌状态 |
+| `market pv` | 获取量价聚合统计 |
 
 ### stock - 股票信息
 
 | 命令 | 说明 |
 |------|------|
-| `stock info` | 获取股票基础信息 |
-| `stock more` | 获取股票更多信息 |
+| `stock info` | 获取股票基础财务与属性信息 |
+| `stock more` | 获取股票进阶信息 |
+| `stock list` | 获取全市场股票代码列表 |
+| `stock search` | 股票代码/名称模糊匹配搜索 |
+| `stock gb` | 获取股本变动信息 (自动匹配有效交易日) |
+| `stock kzz` | 获取可转债信息 |
+| `stock calendar`| 查询交易日历 |
 
 ### sector - 板块数据
 
@@ -126,19 +135,48 @@ cli-anything-tdx-tq stock info -s 600487.SH --json
 |------|------|
 | `sector list` | 获取板块列表 |
 | `sector stocks` | 获取板块成分股 |
+| `sector user` | 获取用户自选/自定义板块 |
+| `sector create` | 创建新的自定义板块 |
+| `sector delete` | 删除指定的自定义板块 |
+| `sector rename` | 重命名自定义板块 |
+| `sector clear` | 清空自定义板块成分股 |
+| `sector update-stocks` | 更新自定义板块成分股 |
+
+### client - 桌面客户端联动与预警
+
+| 命令 | 说明 |
+|------|------|
+| `client link` | 联动通达信桌面客户端切换并展示指定股票 K 线 |
+| `client warn` | 向通达信桌面端发送交易预警气泡弹窗 |
+| `client msg` | 向通达信客户端发送文字通知 |
+
+### trade - 交易与账户管理
+
+| 命令 | 说明 |
+|------|------|
+| `trade account` | 查询当前交易账户状态与 ID |
+| `trade asset` | 查询资金账户总资产与可用余额 |
+| `trade positions` | 查询股票持仓与盈亏明细 |
+| `trade orders` | 查询当日委托订单列表 |
+| `trade order` | 提交买卖委托 (默认安全预览，需 `--confirm` 确认) |
+| `trade cancel` | 撤销已提交的委托订单 |
 
 ### financial - 财务数据
 
 | 命令 | 说明 |
 |------|------|
-| `financial get` | 获取专业财务数据 |
+| `financial get` | 获取专业财务数据 (注: 需客户端下载离线财务数据包) |
+| `financial by-date` | 按指定报告期获取财务数据 |
+| `financial trading` | 获取股票/板块/市场交易统计数据 |
 
 ### formula - 公式调用
 
 | 命令 | 说明 |
 |------|------|
-| `formula zb` | 调用指标公式 |
-| `formula xg` | 调用选股公式 |
+| `formula list` | 获取所有指标或选股公式列表 |
+| `formula info` | 获取指定公式的参数与定义 |
+| `formula zb` | 调用指标公式并计算 |
+| `formula xg` | 调用选股公式筛选股票 |
 
 ## 环境变量
 

@@ -237,6 +237,72 @@ cli-anything-tdx-tq formula xg -n <公式名> [选项]
 cli-anything-tdx-tq formula xg -n KDJ -a 9,3,3
 ```
 
+### client - 桌面客户端联动与预警
+
+联动桌面通达信客户端界面，实现看盘联动、预警气泡与消息通知。
+
+#### client link - 联动看盘
+
+```bash
+tdx-tq client link -s 600519.SH
+```
+
+#### client warn - 预警弹窗
+
+```bash
+tdx-tq client warn -s 600519.SH -m "突破布林上轨" -p 1350.0
+```
+
+#### client msg - 客户端通知
+
+```bash
+tdx-tq client msg -m "AI策略选股已完成"
+```
+
+### trade - 交易与账户管理
+
+实盘与模拟交易执行、资金资产查询、持仓与订单管理。
+
+#### trade account - 查看交易账户
+
+```bash
+tdx-tq trade account [--json]
+```
+
+#### trade asset - 查询账户资产
+
+```bash
+tdx-tq trade asset [--json]
+```
+
+#### trade positions - 查询股票持仓
+
+```bash
+tdx-tq trade positions [--json]
+```
+
+#### trade orders - 查询委托订单
+
+```bash
+tdx-tq trade orders [--cancelable-only] [--json]
+```
+
+#### trade order - 提交买卖委托
+
+```bash
+# 安全预览模式（未实际发送）
+tdx-tq trade order -s 600519.SH -t buy -v 100 -p 1300.0
+
+# 确认下单提交
+tdx-tq trade order -s 600519.SH -t buy -v 100 -p 1300.0 --confirm
+```
+
+#### trade cancel - 撤销委托
+
+```bash
+tdx-tq trade cancel -o <订单号> -s 600519.SH
+```
+
 ### config - 配置管理
 
 #### config show - 显示当前配置

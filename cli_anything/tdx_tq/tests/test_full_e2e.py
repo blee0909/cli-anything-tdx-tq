@@ -44,7 +44,7 @@ class TestCLIBase:
         """测试版本号"""
         result = _run_cli(['--version'])
         assert result.returncode == 0
-        assert '1.0.0' in result.stdout
+        assert '1.1.0' in result.stdout
 
     def test_cli_help(self):
         """测试帮助信息"""
@@ -55,6 +55,8 @@ class TestCLIBase:
         assert 'sector' in result.stdout
         assert 'financial' in result.stdout
         assert 'formula' in result.stdout
+        assert 'client' in result.stdout
+        assert 'trade' in result.stdout
 
     def test_cli_status(self):
         """测试状态查询"""
@@ -129,6 +131,17 @@ class TestCLIStock:
         data = json.loads(result.stdout)
         assert any(item.get('Code') == '600519.SH' for item in data)
 
+    def test_stock_gb_live(self):
+        """实测股本变动信息与有效交易日匹配"""
+        result = _run_cli(['stock', 'gb', '-s', '600519.SH', '-c', '3', '--json'])
+        if result.returncode != 0:
+            pytest.skip("通达信未开启或未登录，跳过实时数据测试")
+        data = json.loads(result.stdout)
+        assert isinstance(data, list)
+        assert len(data) > 0
+        assert 'Ltgb' in data[0]
+        assert 'Zgb' in data[0]
+
 
 class TestCLISector:
     """测试板块数据命令"""
@@ -159,6 +172,36 @@ class TestCLIFormula:
         formulas = json.loads(result.stdout)
         assert len(formulas) > 50
         assert any(f.get('acCode') == 'MA' for f in formulas)
+
+
+class TestCLITrade:
+    """测试交易系统命令"""
+
+    def test_trade_help(self):
+        """测试交易命令帮助"""
+        result = _run_cli(['trade', '--help'])
+        assert result.returncode == 0
+        assert 'account' in result.stdout
+        assert 'order' in result.stdout
+        assert 'asset' in result.stdout
+
+    def test_trade_account_live(self):
+        """实测交易账户状态查询"""
+        result = _run_cli(['trade', 'account', '--json'])
+        if result.returncode != 0:
+            pytest.skip("通达信未开启，跳过交易测试")
+        data = json.loads(result.stdout)
+        assert 'logged_in' in data
+        assert isinstance(data['logged_in'], bool)
+
+    def test_trade_order_preview(self):
+        """实测交易委托安全预览模式"""
+        result = _run_cli(['trade', 'order', '-s', '600519.SH', '-t', 'buy', '-v', '100', '-p', '1300.0', '-a', '1', '--json'])
+        if result.returncode != 0:
+            pytest.skip("通达信未开启，跳过交易测试")
+        data = json.loads(result.stdout)
+        assert data.get('status') == 'preview'
+        assert data['order']['stock'] == '600519.SH'
 
 
 if __name__ == '__main__':
