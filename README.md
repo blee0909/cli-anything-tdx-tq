@@ -79,4 +79,4 @@ uv sync --locked --extra test
 uv run --locked --extra test pytest -m "not live" -q
 ~~~
 
-真实只读测试需显式添加 `--live -m live`；离线测试使用替身，不提交真实交易。SDK 契约见 [SDK_RESULT_CONTRACTS.md](SDK_RESULT_CONTRACTS.md)，架构说明见 [TDX_TQ_SDK.md](TDX_TQ_SDK.md)。许可为 MIT。
+真实只读测试需显式添加 `--live -m live`；离线测试使用替身，不提交真实交易。开发说明见 [docs](docs/README.md)。许可为 MIT。

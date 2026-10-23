@@ -1,8 +1,14 @@
-include LICENSE README.md TDX_TQ_SDK.md SDK_RESULT_CONTRACTS.md uv.lock .python-version
+include LICENSE README.md uv.lock .python-version
+include docs/*.md
 recursive-include cli_anything/tdx_tq/skills *.md
 recursive-include cli_anything/tdx_tq/tests *.py *.md
 recursive-include scripts *.py
+prune docs/archive
+prune reports
+prune exports
+prune logs
 prune temp
+prune tmp
 prune .venv
 prune build
 global-exclude __pycache__ *.py[cod]

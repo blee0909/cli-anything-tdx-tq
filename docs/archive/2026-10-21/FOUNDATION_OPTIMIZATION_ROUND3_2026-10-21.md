@@ -1,5 +1,7 @@
 # 第三轮底座优化与实测验收（2026-10-21）
 
+> 历史快照：记录 2026-10-21 当时的评估或实施结果，不代表当前版本状态。当前说明见 [README](../../../README.md) 和 [文档索引](../../README.md)。
+
 已完成第三轮评估确定的 A 批：行情数量/区间模式、批量可用性、财务字段完整性，以及整数/字符串成功码一致性。继续保留上一轮协议与交易状态约束。本次不是对所有底座风险的完成声明，生命周期与运行预算仍需下一批处理。
 
 ## 已落地的行为
@@ -82,13 +84,13 @@ uv run --locked tdx-tq financial get -s 600519.SH -f FN1,FN4 --allow-partial --j
 
 ## 代码与证据
 
-- 请求与行情规范化：[core/market.py](E:/allmyrepos/cli-anything-tdx-tq/cli_anything/tdx_tq/core/market.py)
-- 完整性规则：[core/quality.py](E:/allmyrepos/cli-anything-tdx-tq/cli_anything/tdx_tq/core/quality.py)
-- 协议和适配：[core/protocol.py](E:/allmyrepos/cli-anything-tdx-tq/cli_anything/tdx_tq/core/protocol.py)、[core/sdk.py](E:/allmyrepos/cli-anything-tdx-tq/cli_anything/tdx_tq/core/sdk.py)
-- 正式回归：[test_data_quality.py](E:/allmyrepos/cli-anything-tdx-tq/cli_anything/tdx_tq/tests/test_data_quality.py)
-- 公共契约：[SDK_RESULT_CONTRACTS.md](E:/allmyrepos/cli-anything-tdx-tq/SDK_RESULT_CONTRACTS.md)
-- 全量离线日志：[3.12](E:/allmyrepos/cli-anything-tdx-tq/temp/optimization-round3-20261021/offline312.json)、[3.13](E:/allmyrepos/cli-anything-tdx-tq/temp/optimization-round3-20261021/offline313.json)
-- 真实读取：[集成日志](E:/allmyrepos/cli-anything-tdx-tq/temp/optimization-round3-20261021/live312.json)、[补充结果](E:/allmyrepos/cli-anything-tdx-tq/temp/optimization-round3-20261021/live-quality-probes.json)
-- 供应商兼容探针：[原探针选定场景](E:/allmyrepos/cli-anything-tdx-tq/temp/optimization-round3-20261021/vendor-native-stubs.json)、[行情/财务成功码](E:/allmyrepos/cli-anything-tdx-tq/temp/optimization-round3-20261021/vendor-batch-codes.json)
-- 覆盖率：[coverage312.json](E:/allmyrepos/cli-anything-tdx-tq/temp/optimization-round3-20261021/coverage312.json)
-- 发布验收：[安装](E:/allmyrepos/cli-anything-tdx-tq/temp/optimization-round3-20261021/release-installs.json)、[冒烟](E:/allmyrepos/cli-anything-tdx-tq/temp/optimization-round3-20261021/release-smoke.json)、[产物/依赖检查](E:/allmyrepos/cli-anything-tdx-tq/temp/optimization-round3-20261021/release-checks.json)
+- 请求与行情规范化：[core/market.py](../../../cli_anything/tdx_tq/core/market.py)
+- 完整性规则：[core/quality.py](../../../cli_anything/tdx_tq/core/quality.py)
+- 协议和适配：[core/protocol.py](../../../cli_anything/tdx_tq/core/protocol.py)、[core/sdk.py](../../../cli_anything/tdx_tq/core/sdk.py)
+- 正式回归：[test_data_quality.py](../../../cli_anything/tdx_tq/tests/test_data_quality.py)
+- 公共契约：[SDK_RESULT_CONTRACTS.md](../../SDK_RESULT_CONTRACTS.md)
+- 全量离线日志：[3.12](../../../temp/optimization-round3-20261021/offline312.json)、[3.13](../../../temp/optimization-round3-20261021/offline313.json)
+- 真实读取：[集成日志](../../../temp/optimization-round3-20261021/live312.json)、[补充结果](../../../temp/optimization-round3-20261021/live-quality-probes.json)
+- 供应商兼容探针：[原探针选定场景](../../../temp/optimization-round3-20261021/vendor-native-stubs.json)、[行情/财务成功码](../../../temp/optimization-round3-20261021/vendor-batch-codes.json)
+- 覆盖率：[coverage312.json](../../../temp/optimization-round3-20261021/coverage312.json)
+- 发布验收：[安装](../../../temp/optimization-round3-20261021/release-installs.json)、[冒烟](../../../temp/optimization-round3-20261021/release-smoke.json)、[产物/依赖检查](../../../temp/optimization-round3-20261021/release-checks.json)

@@ -1,5 +1,7 @@
 底座加固实施记录（2026-10-21）
 
+> 历史快照：记录 2026-10-21 当时的评估或实施结果，不代表当前版本状态。当前说明见 [README](../../../README.md) 和 [文档索引](../../README.md)。
+
 本轮已将评估中的交易正确性、数据语义、SDK 加载、输出/导出及可复现质量门禁落实到代码。源码尚未提交或推送，原始评估报告保留为变更前快照。
 
 **已完成的改动**
@@ -38,6 +40,6 @@
 
 原生 SDK 调用仍可能阻塞至 SDK 自身超时，尚无所有调用统一的可抢占式端到端截止时间。实盘提交、撤单最终状态以及券商/市场对应的数量步长、价格精度需要受控环境专项验证。本轮没有增加常驻服务或多线程共享 SDK；批量性能优化应继续依据耗时日志与真实负载测量。
 
-实施入口见 [README](E:/allmyrepos/cli-anything-tdx-tq/README.md)、[架构契约](E:/allmyrepos/cli-anything-tdx-tq/TDX_TQ_SDK.md)、[CI](E:/allmyrepos/cli-anything-tdx-tq/.github/workflows/ci.yml)。
+实施入口见 [README](../../../README.md)、[架构契约](../../TDX_TQ_SDK.md)、[CI](../../../.github/workflows/ci.yml)。
 
-证据：[3.12 测试日志](E:/allmyrepos/cli-anything-tdx-tq/temp/implementation-20261021/release312.log)、[3.13 测试日志](E:/allmyrepos/cli-anything-tdx-tq/temp/implementation-20261021/release313.log)、[真实读取日志](E:/allmyrepos/cli-anything-tdx-tq/temp/implementation-20261021/live-final.log)、[覆盖率](E:/allmyrepos/cli-anything-tdx-tq/temp/implementation-20261021/coverage-release312.json)、[安装后验证](E:/allmyrepos/cli-anything-tdx-tq/temp/implementation-20261021/wheel-smoke.json)、[额外真实检查](E:/allmyrepos/cli-anything-tdx-tq/temp/implementation-20261021/extra-checks.json)、[事实汇总](E:/allmyrepos/cli-anything-tdx-tq/temp/implementation-20261021/final-facts.json)。
+证据：[3.12 测试日志](../../../temp/implementation-20261021/release312.log)、[3.13 测试日志](../../../temp/implementation-20261021/release313.log)、[真实读取日志](../../../temp/implementation-20261021/live-final.log)、[覆盖率](../../../temp/implementation-20261021/coverage-release312.json)、[安装后验证](../../../temp/implementation-20261021/wheel-smoke.json)、[额外真实检查](../../../temp/implementation-20261021/extra-checks.json)、[事实汇总](../../../temp/implementation-20261021/final-facts.json)。

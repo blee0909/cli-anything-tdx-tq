@@ -1,5 +1,7 @@
 # 项目底座第三轮实测评估 — 2026-10-21
 
+> 历史快照：记录 2026-10-21 当时的评估或实施结果，不代表当前版本状态。当前说明见 [README](../../../README.md) 和 [文档索引](../../README.md)。
+
 当前底座的可安装性、离线回归、真实客户端基本读取和已修复的常见原生失败处理保持稳定。剩余工作的重心已经转向 **请求是否真正生效、返回数据是否完整可用、供应商处理与适配契约是否一致，以及失败后的资源状态是否可信**。
 
 建议下一批优先完成日期范围和批量完整性，联动补齐 SDK 错误码类型一致性；随后处理初始化/关闭状态与整体截止时间。继续增加命令或只提高覆盖率，无法解决本轮真实复现的问题。
@@ -42,7 +44,7 @@
 
 原因不是日期解析失败。CLI 总是传正数 count，默认也是 60；本机 SDK 在 count > 0 时将 start_time_fmt 设为空串，只按结束时间向前取指定根数。CLI 又将 count 限定为至少 1，因此用户无法通过当前接口进入供应商的区间模式。仅传 --start / --end 同样会受到默认 count 的影响。
 
-证据：[CLI 请求构造](E:/allmyrepos/cli-anything-tdx-tq/cli_anything/tdx_tq/tdx_tq_cli.py:114)；[供应商数量模式分支](D:/tdx/PYPlugins/sys/tqcenter.py:1174)；[本轮读取原始结果](E:/allmyrepos/cli-anything-tdx-tq/temp/assessment-round3-20261021/live-extended-results.json)。
+证据：[CLI 请求构造](../../../cli_anything/tdx_tq/tdx_tq_cli.py:114)；[供应商数量模式分支](D:/tdx/PYPlugins/sys/tqcenter.py:1174)；[本轮读取原始结果](../../../temp/assessment-round3-20261021/live-extended-results.json)。
 
 优化应明确分成尾部数量模式和日期区间模式。仅传区间时，不应被默认 count 覆盖；显式冲突参数应拒绝或有清晰、可验收的组合语义。不要只在已经取回的最近几条记录上过滤，这仍可能漏掉区间内更早的数据。
 
@@ -56,7 +58,7 @@
 
 供应商会按请求证券和全局时间轴构造 DataFrame 列，将缺失单元格填为 NaN；CLI 再将其转为 null。只比较 requested_stocks 与 returned_stocks 会漏掉这种情形。
 
-证据：[供应商 DataFrame 构造](D:/tdx/PYPlugins/sys/tqcenter.py:1330)；[CLI 时间轴与记录生成](E:/allmyrepos/cli-anything-tdx-tq/cli_anything/tdx_tq/core/market.py:44)；[原生元数据](E:/allmyrepos/cli-anything-tdx-tq/temp/assessment-round3-20261021/live-batch-metadata.json)。
+证据：[供应商 DataFrame 构造](D:/tdx/PYPlugins/sys/tqcenter.py:1330)；[CLI 时间轴与记录生成](../../../cli_anything/tdx_tq/core/market.py:44)；[原生元数据](../../../temp/assessment-round3-20261021/live-batch-metadata.json)。
 
 应建立可用性判定：证券是否存在于结果、是否有真实有效记录、请求字段是否可用、是否经过填充，分别记录。全空占位记录不能作为成功获取的有效记录数；也不能无依据地将缺数据解释成证券无效。建议提供严格模式和显式允许部分结果模式，后者返回 partial、missing_stocks、missing_fields、warnings 及原因。
 
@@ -70,7 +72,7 @@
 
 另外，使用真实 SDK Python 实现注入 ErrorId='0'、一只证券有数据、另一只出现在 Errors 的财务批量响应后，SDK 和 CLI 仅输出成功证券，未显式标记 partial。此项是故障注入结果，区别于上面的真实行情响应中没有 Errors。
 
-证据：[财务转换路径](E:/allmyrepos/cli-anything-tdx-tq/cli_anything/tdx_tq/tdx_tq_cli.py:650)；[本轮 SDK 边界探针](E:/allmyrepos/cli-anything-tdx-tq/temp/assessment-round3-20261021/test_round3_contracts.py)。
+证据：[财务转换路径](../../../cli_anything/tdx_tq/tdx_tq_cli.py:650)；[本轮 SDK 边界探针](../../../temp/assessment-round3-20261021/test_round3_contracts.py)。
 
 优化应从请求字段列表反向校验结果，保留逐证券错误与缺失信息。JSON 兼容性可通过可选版本化封装维护，不必立即统一改掉所有既有输出结构。
 
@@ -86,9 +88,9 @@
 
 这是已复现的兼容性缺口；本轮真实行情原生响应使用的是字符串 '0'，没有证据证明真实客户端当前正在发送整数成功码，不能宣称真实账户已经丢失持仓数据。其影响在扩展 SDK 版本或作为自动核对基础时尤其需要控制。
 
-证据：[适配器错误码规则](E:/allmyrepos/cli-anything-tdx-tq/cli_anything/tdx_tq/core/protocol.py:35)、[只检查是否见过成功回执](E:/allmyrepos/cli-anything-tdx-tq/cli_anything/tdx_tq/core/sdk.py:207)、[供应商委托查询字符串比较](D:/tdx/PYPlugins/sys/tqcenter.py:3703)。
+证据：[适配器错误码规则](../../../cli_anything/tdx_tq/core/protocol.py:35)、[只检查是否见过成功回执](../../../cli_anything/tdx_tq/core/sdk.py:207)、[供应商委托查询字符串比较](D:/tdx/PYPlugins/sys/tqcenter.py:3703)。
 
-正式替身在判断时使用 str(obj.get('ErrorId'))，比实际供应商实现更宽容，因而掩盖了差异：[替身判断](E:/allmyrepos/cli-anything-tdx-tq/cli_anything/tdx_tq/tests/test_protocol.py:58)。这是 97% 左右的协议模块合并覆盖率仍不能替代真实供应商契约验证的具体例子。
+正式替身在判断时使用 str(obj.get('ErrorId'))，比实际供应商实现更宽容，因而掩盖了差异：[替身判断](../../../cli_anything/tdx_tq/tests/test_protocol.py:58)。这是 97% 左右的协议模块合并覆盖率仍不能替代真实供应商契约验证的具体例子。
 
 优化应在供应商作判断之前统一已支持的协议形态，并校验原生 Value 与最终业务结果的一致性。不能只凭 confirmed_reply=True 就接受明显收缩后的结果；未支持形态应明确失败。
 
@@ -100,7 +102,7 @@
 
 这个故障注入证明关闭确认和状态一致性不足，没有证明本机正常调用曾发生真实 OS 连接泄漏。旧探针也再次确认：后端先取得资源、初始化随后失败时，Session.close() 因标志未置为真而不调用底层关闭。
 
-证据：[Session 初始化与关闭](E:/allmyrepos/cli-anything-tdx-tq/cli_anything/tdx_tq/core/session.py:40)、[CLI 关闭输出](E:/allmyrepos/cli-anything-tdx-tq/cli_anything/tdx_tq/tdx_tq_cli.py:97)、[供应商关闭异常处理](D:/tdx/PYPlugins/sys/tqcenter.py:655)。
+证据：[Session 初始化与关闭](../../../cli_anything/tdx_tq/core/session.py:40)、[CLI 关闭输出](../../../cli_anything/tdx_tq/tdx_tq_cli.py:97)、[供应商关闭异常处理](D:/tdx/PYPlugins/sys/tqcenter.py:655)。
 
 优化方向是 initializing / ready / closing / failed / closed 等明确状态，以及初始化尝试后的幂等清理。关闭失败应保留“未确认关闭”的状态和诊断依据；不要用本地布尔复位代替底层关闭确认。
 
@@ -138,7 +140,7 @@
 
 建议锁定构建工具约束，让发布验证使用明确的锁定运行约束；另设有意的最低/当前依赖兼容测试。SDK 应记录版本/文件指纹、DLL 架构、能力与协议适配策略，不能只因函数存在就扩大支持版本声明。
 
-证据：[构建依赖](E:/allmyrepos/cli-anything-tdx-tq/pyproject.toml:1)、[CI 的安装方式](E:/allmyrepos/cli-anything-tdx-tq/.github/workflows/ci.yml:31)、[本轮独立安装记录](E:/allmyrepos/cli-anything-tdx-tq/temp/assessment-round3-20261021/wheel-installs.json)。本轮没有触发远端 CI，所有“通过”均指已实际执行的本地验证。
+证据：[构建依赖](../../../pyproject.toml:1)、[CI 的安装方式](../../../.github/workflows/ci.yml:31)、[本轮独立安装记录](../../../temp/assessment-round3-20261021/wheel-installs.json)。本轮没有触发远端 CI，所有“通过”均指已实际执行的本地验证。
 
 本轮沿用相同合成数据重复三次微基准，未启用内存采样，不含 SDK 读取和终端渲染：
 
@@ -176,12 +178,12 @@
 
 新探针当前预期得到 9 failed、6 passed；旧边界探针为 13 failed、13 passed。完整参数（工作区缓存、解释器、basetemp、XML 路径）见各 JSON 日志。Python 3.13 使用 uv run --no-sync 加明确 3.13.15 解释器；本轮没有把它伪称为新建并重新锁定同步的测试环境。
 
-- [机器可读事实汇总](E:/allmyrepos/cli-anything-tdx-tq/temp/assessment-round3-20261021/assessment-facts.json)
-- [Python 3.12 正式日志](E:/allmyrepos/cli-anything-tdx-tq/temp/assessment-round3-20261021/baseline312.json)、[Python 3.13 正式日志](E:/allmyrepos/cli-anything-tdx-tq/temp/assessment-round3-20261021/baseline313.json)、[真实读取日志](E:/allmyrepos/cli-anything-tdx-tq/temp/assessment-round3-20261021/live.json)
-- [额外真实读取原始结果](E:/allmyrepos/cli-anything-tdx-tq/temp/assessment-round3-20261021/live-extended-results.json)、[批量原生元数据](E:/allmyrepos/cli-anything-tdx-tq/temp/assessment-round3-20261021/live-batch-metadata.json)
-- [第三轮探针源码](E:/allmyrepos/cli-anything-tdx-tq/temp/assessment-round3-20261021/test_round3_contracts.py)、[最终探针结果](E:/allmyrepos/cli-anything-tdx-tq/temp/assessment-round3-20261021/new-boundaries-final2.json)、[旧边界复核](E:/allmyrepos/cli-anything-tdx-tq/temp/assessment-round3-20261021/prior-boundaries.json)
-- [覆盖率](E:/allmyrepos/cli-anything-tdx-tq/temp/assessment-round3-20261021/coverage.json)、[依赖与门槛检查](E:/allmyrepos/cli-anything-tdx-tq/temp/assessment-round3-20261021/preflight-and-gates.json)
-- [安装包验收](E:/allmyrepos/cli-anything-tdx-tq/temp/assessment-round3-20261021/release-checks.json)、[性能样本](E:/allmyrepos/cli-anything-tdx-tq/temp/assessment-round3-20261021/performance.json)
-- [评估前源文件指纹](E:/allmyrepos/cli-anything-tdx-tq/temp/assessment-round3-20261021/source-before.json)、[评估后指纹](E:/allmyrepos/cli-anything-tdx-tq/temp/assessment-round3-20261021/source-after.json)
+- [机器可读事实汇总](../../../temp/assessment-round3-20261021/assessment-facts.json)
+- [Python 3.12 正式日志](../../../temp/assessment-round3-20261021/baseline312.json)、[Python 3.13 正式日志](../../../temp/assessment-round3-20261021/baseline313.json)、[真实读取日志](../../../temp/assessment-round3-20261021/live.json)
+- [额外真实读取原始结果](../../../temp/assessment-round3-20261021/live-extended-results.json)、[批量原生元数据](../../../temp/assessment-round3-20261021/live-batch-metadata.json)
+- [第三轮探针源码](../../../temp/assessment-round3-20261021/test_round3_contracts.py)、[最终探针结果](../../../temp/assessment-round3-20261021/new-boundaries-final2.json)、[旧边界复核](../../../temp/assessment-round3-20261021/prior-boundaries.json)
+- [覆盖率](../../../temp/assessment-round3-20261021/coverage.json)、[依赖与门槛检查](../../../temp/assessment-round3-20261021/preflight-and-gates.json)
+- [安装包验收](../../../temp/assessment-round3-20261021/release-checks.json)、[性能样本](../../../temp/assessment-round3-20261021/performance.json)
+- [评估前源文件指纹](../../../temp/assessment-round3-20261021/source-before.json)、[评估后指纹](../../../temp/assessment-round3-20261021/source-after.json)
 
 真实读取结论仅代表本机客户端、SDK 及抽样数据；故障注入说明相应条件下的代码行为，不代表这些异常已经在实际账户发生。报告中的多次写请求是扩展模型，和当前供应商的一次写调用明确区分。

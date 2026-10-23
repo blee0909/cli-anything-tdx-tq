@@ -1,58 +1,67 @@
-# Python
+# Python bytecode
 __pycache__/
 *.py[cod]
 *$py.class
-*.so
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-pip-wheel-metadata/
-share/python-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-MANIFEST
 
-# Virtual Environment
+# Virtual environments and dependency caches
+.venv/
+.venv-*/
 venv/
 env/
 ENV/
-.venv/
+.uv-cache/
 
-# IDE
+# Build and package output
+/build/
+/dist/
+.eggs/
+*.egg-info/
+*.egg
+/MANIFEST
+
+# Test, lint and type-check caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.pytype/
+.hypothesis/
+.tox/
+.nox/
+
+# Coverage and test output
+.coverage
+.coverage.*
+coverage.json
+coverage.xml
+htmlcov/
+/junit*.xml
+
+# Local reports, exported market data, logs and scratch work
+/reports/
+/exports/
+/logs/
+/temp/
+/tmp/
+*.log
+*.tmp
+*.bak
+
+# Local configuration (keep shareable templates)
+.env
+.env.*
+!.env.example
+!.env.template
+/.tdx_tq/
+/config.local.json
+
+# Editors
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
 
-# OS
+# Operating systems
 .DS_Store
 Thumbs.db
-
-# Test
-.pytest_cache/
-.coverage
-htmlcov/
-
-# Logs
-*.log
-
-# Temporary files
-*.tmp
-temp/
-
-# Quality reports
-coverage.json
-coverage.xml
-.coverage.*
+Desktop.ini

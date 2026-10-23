@@ -15,7 +15,7 @@
 
 SDK 导入不发生在模块级。加载器检查已解析配置对应的 tqcenter.py 文件，捕获 DLL/模块加载故障，拒绝在同一进程中混用不同 SDK 目录。中文兼容补丁只处理已知 GBK 返回；可转债空列表补丁只捕获 IndexError，其他故障继续传播。
 
-原生响应及 SDK 分页重组后的回执通过 ContextVar 关联到单次调用，先于供应商错误折叠记录协议证据。错误信息只附带方法、原生函数、请求类型、失败类别和 ErrorId，不保留响应正文。stock_account 的 -1 不能独立证明未登录；本机账户查询明确 ErrorId=9（未登录或不存在）或成功回执返回 -1时才视为无可用账户，其他不确定情形为 ACCOUNT_STATE_UNKNOWN。交易需要有效 ErrorId=0；明确负回执为 TdxDataError，发出后无法确认则为 TdxExecutionUnknownError。客户端、板块和缓存操作同样校验字典或 JSON 字符串回执，不确认则为 OPERATION_STATE_UNKNOWN。没有自动交易重试。受理、成交和最终撤单状态仍需区分，后两者需要查询确认。完整表见 SDK_RESULT_CONTRACTS.md。
+原生响应及 SDK 分页重组后的回执通过 ContextVar 关联到单次调用，先于供应商错误折叠记录协议证据。错误信息只附带方法、原生函数、请求类型、失败类别和 ErrorId，不保留响应正文。stock_account 的 -1 不能独立证明未登录；本机账户查询明确 ErrorId=9（未登录或不存在）或成功回执返回 -1时才视为无可用账户，其他不确定情形为 ACCOUNT_STATE_UNKNOWN。交易需要有效 ErrorId=0；明确负回执为 TdxDataError，发出后无法确认则为 TdxExecutionUnknownError。客户端、板块和缓存操作同样校验字典或 JSON 字符串回执，不确认则为 OPERATION_STATE_UNKNOWN。没有自动交易重试。受理、成交和最终撤单状态仍需区分，后两者需要查询确认。完整表见 [SDK_RESULT_CONTRACTS.md](SDK_RESULT_CONTRACTS.md)。
 
 会话只在当前进程中有效。每个进程使用独立连接标识，在命令上下文退出时关闭。此版本没有常驻守护进程或多线程共享 SDK 的保证。
 

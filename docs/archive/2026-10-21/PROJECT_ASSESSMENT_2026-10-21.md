@@ -1,5 +1,7 @@
 项目底座评估（2026-10-21）
 
+> 历史快照：记录 2026-10-21 当时的评估或实施结果，不代表当前版本状态。当前说明见 [README](../../../README.md) 和 [文档索引](../../README.md)。
+
 评估版本：a998d20f026c7e096b5d88dd5938899d41bac12c。评估环境：Windows，Asia/Shanghai。
 
 结论：项目已经具备可用的本地 CLI 原型与真实数据接入能力，日线及常用只读流程在当前通达信环境下可以工作。底座仍有明显缺口，尤其是交易结果误报成功、数据语义丢失、SDK 加载时序、机器可读输出以及自动化质量门禁。当前适合有人监督的本地使用；现有证据不足以支持把它作为稳定的无人值守交易执行底座。下一轮应以正确性、错误契约和可复现验证为主线。
@@ -35,7 +37,7 @@
 | output.py | 87.1% | 77.8% | 嵌套结构、非有限数值等约束未验证 |
 | 合计（含包初始化） | 53.1% | 29.5% | 现有测试偏重正常流程 |
 
-[原始基线日志](E:/allmyrepos/cli-anything-tdx-tq/temp/assessment-20261021/baseline.log)、[隔离环境日志](E:/allmyrepos/cli-anything-tdx-tq/temp/assessment-20261021/fresh313-tests.log)、[覆盖率数据](E:/allmyrepos/cli-anything-tdx-tq/temp/assessment-20261021/coverage.json)、[最终探针日志](E:/allmyrepos/cli-anything-tdx-tq/temp/assessment-20261021/probes-final.log)、[探针源码](E:/allmyrepos/cli-anything-tdx-tq/temp/assessment-20261021/test_regression_probes.py)、[构建日志](E:/allmyrepos/cli-anything-tdx-tq/temp/assessment-20261021/build.log)、[事实汇总](E:/allmyrepos/cli-anything-tdx-tq/temp/assessment-20261021/assessment-facts.json)。
+[原始基线日志](../../../temp/assessment-20261021/baseline.log)、[隔离环境日志](../../../temp/assessment-20261021/fresh313-tests.log)、[覆盖率数据](../../../temp/assessment-20261021/coverage.json)、[最终探针日志](../../../temp/assessment-20261021/probes-final.log)、[探针源码](../../../temp/assessment-20261021/test_regression_probes.py)、[构建日志](../../../temp/assessment-20261021/build.log)、[事实汇总](../../../temp/assessment-20261021/assessment-facts.json)。
 
 **已有基础值得保留**
 
@@ -50,13 +52,13 @@
 
 1. 下单和撤单会把 SDK 明确返回的失败值包装成成功。
 
-[下单处理](E:/allmyrepos/cli-anything-tdx-tq/cli_anything/tdx_tq/tdx_tq_cli.py:1166)和[撤单处理](E:/allmyrepos/cli-anything-tdx-tq/cli_anything/tdx_tq/tdx_tq_cli.py:1198)直接返回 success=true。本机实际 SDK 的 order_stock/cancel_order_stock 在参数错误、非零 ErrorId、空响应或异常时会返回 -1；探针用同样返回值复现了 success=true、退出码 0。
+[下单处理](../../../cli_anything/tdx_tq/tdx_tq_cli.py:1166)和[撤单处理](../../../cli_anything/tdx_tq/tdx_tq_cli.py:1198)直接返回 success=true。本机实际 SDK 的 order_stock/cancel_order_stock 在参数错误、非零 ErrorId、空响应或异常时会返回 -1；探针用同样返回值复现了 success=true、退出码 0。
 
 影响：Agent 或脚本会把失败当作已执行，后续查询、记账和重试决策可能失真。应在适配层统一解析 SDK 返回值，区分调用失败、已受理和状态未知；只有满足已确认返回契约时才报告成功。提交超时或状态未知时，应先查询核对，自动重试规则只先覆盖可安全重复的读取操作。
 
 2. 输入仅做 int/float 转换，没有执行语义校验。
 
-[交易参数与执行](E:/allmyrepos/cli-anything-tdx-tq/cli_anything/tdx_tq/tdx_tq_cli.py:1124)允许负数/零数量、负价格、NaN 和 Inf 进入 SDK 调用。评估通过内存 SDK 替身验证了所有这些输入均进入 order_stock；没有触发真实交易。
+[交易参数与执行](../../../cli_anything/tdx_tq/tdx_tq_cli.py:1124)允许负数/零数量、负价格、NaN 和 Inf 进入 SDK 调用。评估通过内存 SDK 替身验证了所有这些输入均进入 order_stock；没有触发真实交易。
 
 方向：统一订单请求模型，验证数量为正、价格有限、证券代码非空且有效、报价类型受支持，并按报价类型验证价格约束。数量步长、价格精度、限价/市价规则应来自经核实的市场和 SDK 能力，不宜对所有品种统一硬编码。预览与提交复用同一套校验。--confirm 已有价值，但还需要返回值和执行参数的正确性约束。
 
@@ -64,48 +66,48 @@
 
 **P1：行情和日期语义存在静默错误**
 
-- [K 线重组](E:/allmyrepos/cli-anything-tdx-tq/cli_anything/tdx_tq/tdx_tq_cli.py:32)对 Timestamp 使用 str(d)[:10]。两根同一天 09:30、09:31 的分钟 K 线会变成同一个日期。本机 SDK 实际使用 DatetimeIndex 构造 K 线索引，因此这与真实返回模型有关。本次真实 1m 请求返回空对象，未获得可直接比对的分钟条目；时间丢失由实际转换函数的边界测试确认。
+- [K 线重组](../../../cli_anything/tdx_tq/tdx_tq_cli.py:32)对 Timestamp 使用 str(d)[:10]。两根同一天 09:30、09:31 的分钟 K 线会变成同一个日期。本机 SDK 实际使用 DatetimeIndex 构造 K 线索引，因此这与真实返回模型有关。本次真实 1m 请求返回空对象，未获得可直接比对的分钟条目；时间丢失由实际转换函数的边界测试确认。
 - 重组只从第一个 DataFrame 获取证券和时间轴。不同字段列/索引不一致时会丢失后续证券或记录。应明确要求对齐并验证，或按集合并集对齐；不能静默忽略。
 - 实测 period=tick、60m、not-a-period 都返回 {} 且退出码为 0。本机 SDK 的合法周期含 1h，当前校验不接受 tick/60m；CLI 帮助却列出 tick/60m。SDK 返回的 error/msg 字典被重组函数忽略了。应建立能力检测、周期别名映射及错误解析，未知周期在调用前明确报错。
 - 实测无效证券代码 INVALID 的 snapshot 也返回 {}、退出码 0，错误只出现在 stderr。应区分有效空数据、证券无效、连接失败和权限不足。
-- [交易日回退](E:/allmyrepos/cli-anything-tdx-tq/cli_anything/tdx_tq/core/session.py:209)在交易日接口无结果时返回自然日，包含周末；[股本查询](E:/allmyrepos/cli-anything-tdx-tq/cli_anything/tdx_tq/tdx_tq_cli.py:483)还会重复补齐最后日期，极端情况下填入固定日期 20260101。这会把数据不足伪装成完整日期序列。应返回真实有效日期及不足说明，或明确失败；如允许近似值，需要显式标识来源和降级状态。
+- [交易日回退](../../../cli_anything/tdx_tq/core/session.py:209)在交易日接口无结果时返回自然日，包含周末；[股本查询](../../../cli_anything/tdx_tq/tdx_tq_cli.py:483)还会重复补齐最后日期，极端情况下填入固定日期 20260101。这会把数据不足伪装成完整日期序列。应返回真实有效日期及不足说明，或明确失败；如允许近似值，需要显式标识来源和降级状态。
 
 验收：分钟记录有完整且可区分的时间；日线约定清晰；错误周期和错误证券非零退出；交易日不被自然日替代，数量不足不补造重复数据。
 
 **P1：SDK 路径选择和初始化边界不可靠**
 
-[session.py 的模块级加载](E:/allmyrepos/cli-anything-tdx-tq/cli_anything/tdx_tq/core/session.py:106)发生在 Click 处理 --tdx-path 之前。随后配置对象变化，已导入的 tqcenter 仍然保留。
+[session.py 的模块级加载](../../../cli_anything/tdx_tq/core/session.py:106)发生在 Click 处理 --tdx-path 之前。随后配置对象变化，已导入的 tqcenter 仍然保留。
 
 真实复现：--tdx-path 指向评估目录下一个不存在的 SDK 路径，market snapshot 仍然成功取数，实际使用了默认路径的 SDK。因此展示的配置路径和运行中的 SDK 来源可能不一致。模拟 tqcenter 加载抛出 OSError 时，--help 也在参数处理之前崩溃，因为模块级加载只捕获 ImportError。
 
 方向：先解析配置，再惰性创建 SDK 适配器；集中处理模块路径与 DLL 路径。诊断输出包含 configured_path、loaded_module_path、DLL 来源及能力信息。路径切换应有明确的重新创建规则。帮助、版本和配置诊断应能在 SDK 缺失或损坏时工作。
 
-SDK 补丁也应集中到适配器，记录适用版本/能力和回归样本。[可转债补丁](E:/allmyrepos/cli-anything-tdx-tq/cli_anything/tdx_tq/core/session.py:93)当前捕获全部异常并返回 {}，需要保留异常类别和诊断，避免将连接或实现故障解释为无数据。
+SDK 补丁也应集中到适配器，记录适用版本/能力和回归样本。[可转债补丁](../../../cli_anything/tdx_tq/core/session.py:93)当前捕获全部异常并返回 {}，需要保留异常类别和诊断，避免将连接或实现故障解释为无数据。
 
 **P1：机器消费契约尚不统一**
 
-[统一错误处理](E:/allmyrepos/cli-anything-tdx-tq/cli_anything/tdx_tq/tdx_tq_cli.py:66)只被部分命令调用。stock info、financial get、formula zb 等即使带 --json，运行失败仍只向 stderr 输出文本，stdout 为空；评估已复现。
+[统一错误处理](../../../cli_anything/tdx_tq/tdx_tq_cli.py:66)只被部分命令调用。stock info、financial get、formula zb 等即使带 --json，运行失败仍只向 stderr 输出文本，stdout 为空；评估已复现。
 
-[输出序列化](E:/allmyrepos/cli-anything-tdx-tq/cli_anything/tdx_tq/utils/output.py:12)只转换顶层对象，嵌套 DataFrame 被 default=str 转成展示字符串；NaN 会直接进入 JSON。各命令又直接调用不同的 json.dumps 路径，金融 DataFrame、时间、numpy 标量等没有统一规则。market get 同时传 --json 和 -o 时，stdout 是“数据已成功导出”文本，也不是 JSON。
+[输出序列化](../../../cli_anything/tdx_tq/utils/output.py:12)只转换顶层对象，嵌套 DataFrame 被 default=str 转成展示字符串；NaN 会直接进入 JSON。各命令又直接调用不同的 json.dumps 路径，金融 DataFrame、时间、numpy 标量等没有统一规则。market get 同时传 --json 和 -o 时，stdout 是“数据已成功导出”文本，也不是 JSON。
 
 方向：建立一套递归、可测试的序列化和输出入口，明确成功/失败/部分成功、空值、时区、数值类型、错误码与退出码。日志进入 stderr，--json 下 stdout 保持可解析；导出时返回结构化文件信息。JSON 结构调整需要版本或兼容迁移策略。帮助和参数解析错误、业务异常、SDK 错误都应纳入测试。
 
 **P1：导出和分发声明与实际能力不完全一致**
 
-- [Excel 导出](E:/allmyrepos/cli-anything-tdx-tq/cli_anything/tdx_tq/core/export.py:37)固定使用 openpyxl，但 pyproject.toml 未声明该依赖或可选 extra。真实 .xlsx 导出报 ModuleNotFoundError。应补齐依赖声明或提供明确的 excel extra，并测试按声明安装后的功能。
+- [Excel 导出](../../../cli_anything/tdx_tq/core/export.py:37)固定使用 openpyxl，但 pyproject.toml 未声明该依赖或可选 extra。真实 .xlsx 导出报 ModuleNotFoundError。应补齐依赖声明或提供明确的 excel extra，并测试按声明安装后的功能。
 - JSON 导出 orient=records 会丢弃命名日期索引；探针确认通用导出函数丢失 date。CLI 日线转换路径把日期放进列中，不能代替通用导出模块的约定。
 - .xls 被 CLI 当作 openpyxl Excel 输出，格式与扩展名契约需明确；未知扩展名当前自动当 CSV，宜显式验证。
-- pyproject.toml 与 CLI 是 1.1.0，[包 __version__](E:/allmyrepos/cli-anything-tdx-tq/cli_anything/tdx_tq/__init__.py:7)及 setup.py 仍是 1.0.0。已安装 wheel 的发行元数据为 1.1.0，而模块属性为 1.0.0。应统一版本来源，避免重复配置。
+- pyproject.toml 与 CLI 是 1.1.0，[包 __version__](../../../cli_anything/tdx_tq/__init__.py:7)及 setup.py 仍是 1.0.0。已安装 wheel 的发行元数据为 1.1.0，而模块属性为 1.0.0。应统一版本来源，避免重复配置。
 - wheel 包含 tests，但不包含源码中存在的 skills/SKILL.md。如果该文件属于分发给 Agent 的能力说明，应显式纳入 package-data 并验证；正式发布是否携带测试也应明确。
 - 构建成功伴随 install_requires 被 pyproject 覆盖、license 表格和许可证 classifier 的弃用告警。应将元数据收敛到 pyproject，消除重复 setup 声明，按已选构建工具支持的方式维护许可证，并补齐许可证文件。
 
 **P1：测试通过率无法代表质量门禁**
 
-[现有 E2E](E:/allmyrepos/cli-anything-tdx-tq/cli_anything/tdx_tq/tests/test_full_e2e.py:25)使用 shell=True、没有子进程超时，并把实时命令的任何非零退出码都变成 skip。实现错误、序列化错误、依赖缺失和客户端不可用会被混在一起。本次真实环境没有 skip，但这套规则会在未来隐藏回归。
+[现有 E2E](../../../cli_anything/tdx_tq/tests/test_full_e2e.py:25)使用 shell=True、没有子进程超时，并把实时命令的任何非零退出码都变成 skip。实现错误、序列化错误、依赖缺失和客户端不可用会被混在一起。本次真实环境没有 skip，但这套规则会在未来隐藏回归。
 
 配置测试读取用户默认配置并直接修改/清除进程环境；状态测试硬编码 D:\tdx。缺少 conftest、明确 marker、环境能力探测及隔离的配置目录。交易测试只覆盖预览，未验证提交参数、返回失败、超时与撤单错误。
 
-[TEST.md](E:/allmyrepos/cli-anything-tdx-tq/cli_anything/tdx_tq/tests/TEST.md:269)把通过数/测试数写作覆盖率，README 和 TEST.md 的测试命令还指向不存在的 tests/、tests/unit、tests/e2e 目录。
+[TEST.md](../../../cli_anything/tdx_tq/tests/TEST.md:269)把通过数/测试数写作覆盖率，README 和 TEST.md 的测试命令还指向不存在的 tests/、tests/unit、tests/e2e 目录。
 
 方向：划分 unit、cli、live_readonly、mutation 等测试边界；默认测试在无 SDK、无客户端环境可重复运行；真实测试通过明确开关运行。只对预先探测出的环境不可用进行 skip，环境已就绪后的命令失败必须失败。子进程使用参数数组、shell=False、明确 timeout。将本次有效探针整理进正式回归，补齐正常对照和异常分类，避免把探针数量当质量分数。
 
@@ -119,7 +121,7 @@ SDK 补丁也应集中到适配器，记录适用版本/能力和回归样本。
 
 当前约 1270 行的 tdx_tq_cli.py 同时承担参数、SDK 调用、业务判断、DataFrame 转换和呈现；大量逻辑重复，TdxDataError/TdxParamError 等异常没有形成真正的边界。建议渐进整理为命令层、领域服务、SDK 适配器及共享输出层。先提取交易、行情归一化和错误转换等已确认有问题的边界，保留现有命令兼容性。适配器可通过 Protocol 或简单接口注入，方便在没有客户端时测试。
 
-[配置读取与保存](E:/allmyrepos/cli-anything-tdx-tq/cli_anything/tdx_tq/core/config.py:28)缺少字段类型/schema 校验，损坏文件被静默忽略，写入使用直接覆盖。建议提供明确的配置来源诊断、类型校验、临时文件加原子替换；若支持并发写入再加入相应协调。测试使用临时配置目录，不依赖个人主目录。
+[配置读取与保存](../../../cli_anything/tdx_tq/core/config.py:28)缺少字段类型/schema 校验，损坏文件被静默忽略，写入使用直接覆盖。建议提供明确的配置来源诊断、类型校验、临时文件加原子替换；若支持并发写入再加入相应协调。测试使用临时配置目录，不依赖个人主目录。
 
 Session 是进程内单例；单独运行 init 后进程退出，并不会给下一条 status 保留连接。文档中的会话语义应明确。若将来需要连续工作流，再评估同进程批量执行或持久服务，并针对多命令争用、线程安全、SDK 连接标识和重连做专项验证。本次多数额外读取调用耗时约 1—2.4 秒，只是少量样本，不能作为性能分位数；性能优化应先建立延迟、批量大小和超时基线。
 

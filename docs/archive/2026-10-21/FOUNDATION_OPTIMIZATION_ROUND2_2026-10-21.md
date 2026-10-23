@@ -1,5 +1,7 @@
 # 第二轮底座优化交付 — 2026-10-21
 
+> 历史快照：记录 2026-10-21 当时的评估或实施结果，不代表当前版本状态。当前说明见 [README](../../../README.md) 和 [文档索引](../../README.md)。
+
 本轮落实上一轮确定的首批范围：SDK 返回语义与交易未知状态闭环，同时修复真实复现的除权日期丢失。当前工作区保留此前所有加固内容，本轮修改尚未提交或发布。
 
 实际客户端操作均为读取。下单、撤单、板块、缓存和 GUI 操作的错误验证使用内存原生函数替身，没有向真实客户端提交这些写操作。
@@ -44,15 +46,15 @@
 
 ## 可审阅内容
 
-- [返回契约表](E:/allmyrepos/cli-anything-tdx-tq/SDK_RESULT_CONTRACTS.md)
-- [原生协议证据与状态分类](E:/allmyrepos/cli-anything-tdx-tq/cli_anything/tdx_tq/core/protocol.py)
-- [SDK 加载及返回校验](E:/allmyrepos/cli-anything-tdx-tq/cli_anything/tdx_tq/core/sdk.py)
-- [交易领域处理](E:/allmyrepos/cli-anything-tdx-tq/cli_anything/tdx_tq/core/trading.py)
-- [正式协议回归](E:/allmyrepos/cli-anything-tdx-tq/cli_anything/tdx_tq/tests/test_protocol.py)
-- [机器可读验收结果](E:/allmyrepos/cli-anything-tdx-tq/temp/optimization-round2-20261021/completion-facts.json)
-- [Python 3.12 完整日志](E:/allmyrepos/cli-anything-tdx-tq/temp/optimization-round2-20261021/final312.json)、[Python 3.13 日志](E:/allmyrepos/cli-anything-tdx-tq/temp/optimization-round2-20261021/final313.json)
-- [真实读取日志](E:/allmyrepos/cli-anything-tdx-tq/temp/optimization-round2-20261021/final-live.json)、[真实 SDK 故障探针日志](E:/allmyrepos/cli-anything-tdx-tq/temp/optimization-round2-20261021/final-native.json)
-- [安装包检查](E:/allmyrepos/cli-anything-tdx-tq/temp/optimization-round2-20261021/release-checks.json)
+- [返回契约表](../../SDK_RESULT_CONTRACTS.md)
+- [原生协议证据与状态分类](../../../cli_anything/tdx_tq/core/protocol.py)
+- [SDK 加载及返回校验](../../../cli_anything/tdx_tq/core/sdk.py)
+- [交易领域处理](../../../cli_anything/tdx_tq/core/trading.py)
+- [正式协议回归](../../../cli_anything/tdx_tq/tests/test_protocol.py)
+- [机器可读验收结果](../../../temp/optimization-round2-20261021/completion-facts.json)
+- [Python 3.12 完整日志](../../../temp/optimization-round2-20261021/final312.json)、[Python 3.13 日志](../../../temp/optimization-round2-20261021/final313.json)
+- [真实读取日志](../../../temp/optimization-round2-20261021/final-live.json)、[真实 SDK 故障探针日志](../../../temp/optimization-round2-20261021/final-native.json)
+- [安装包检查](../../../temp/optimization-round2-20261021/release-checks.json)
 
 ## 后续顺序
 
