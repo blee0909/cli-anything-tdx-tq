@@ -34,7 +34,7 @@ class TestExportDataframe:
 
         assert os.path.exists(result)
         # 验证内容
-        df_read = pd.read_csv(result, index_col=0)
+        df_read = pd.read_csv(result)
         assert len(df_read) == 3
         assert 'A' in df_read.columns
         assert 'B' in df_read.columns

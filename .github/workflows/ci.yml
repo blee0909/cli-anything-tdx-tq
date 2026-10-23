@@ -1,0 +1,44 @@
+name: Test and package
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.12', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.12.17'
+          python-version: ${{ matrix.python }}
+          enable-cache: true
+      - name: Sync locked dependencies
+        run: uv sync --locked --extra test --python ${{ matrix.python }}
+      - name: Offline contracts and coverage
+        run: uv run --locked --extra test --python ${{ matrix.python }} pytest -m "not live" --cov=cli_anything/tdx_tq --cov-report=term-missing --cov-report=json:coverage.json --cov-report=xml:coverage.xml
+      - name: Statement and branch gates
+        run: uv run --locked --python ${{ matrix.python }} python scripts/check_coverage.py coverage.json
+      - name: Build sdist and wheel
+        run: uv build --python ${{ matrix.python }}
+      - name: Install and smoke test wheel outside the checkout
+        shell: pwsh
+        run: |
+          $smokeDir = Join-Path $env:RUNNER_TEMP 'tdx-wheel-smoke'
+          uv venv $smokeDir --python ${{ matrix.python }}
+          $smokePython = Join-Path $smokeDir 'Scripts/python.exe'
+          $wheel = (Get-ChildItem dist -Filter *.whl | Select-Object -First 1).FullName
+          uv pip install --python $smokePython $wheel
+          $smokeScript = (Resolve-Path scripts/smoke_package.py).Path
+          Push-Location $env:RUNNER_TEMP
+          try { & $smokePython $smokeScript; if ($LASTEXITCODE) { exit $LASTEXITCODE } }
+          finally { Pop-Location }

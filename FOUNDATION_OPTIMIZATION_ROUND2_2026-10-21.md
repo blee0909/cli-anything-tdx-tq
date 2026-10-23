@@ -1,0 +1,59 @@
+# 第二轮底座优化交付 — 2026-10-21
+
+本轮落实上一轮确定的首批范围：SDK 返回语义与交易未知状态闭环，同时修复真实复现的除权日期丢失。当前工作区保留此前所有加固内容，本轮修改尚未提交或发布。
+
+实际客户端操作均为读取。下单、撤单、板块、缓存和 GUI 操作的错误验证使用内存原生函数替身，没有向真实客户端提交这些写操作。
+
+## 已完成的行为修复
+
+| 场景 | 优化前 | 当前行为 |
+| --- | --- | --- |
+| 持仓、委托查询原生调用失败 | SDK 折叠为 []，CLI 退出 0 | 根据原生回执区分错误；正常成功的空集合仍有效 |
+| 资产、财务原生调用失败 | 可能作为 {} 正常输出 | 原生失败或无法核实的关键读取返回非零退出码 |
+| 账户查询返回 -1 | 一律解释为未登录 | 仅账户协议的明确无可用账户回执支持 state=unavailable；传输或类型无法确认返回 ACCOUNT_STATE_UNKNOWN |
+| 下单、撤单空响应或通信异常 | 部分情况归为普通失败 | TRADE_STATE_UNKNOWN，retryable=false；不自动重发 |
+| 有效的明确拒绝回执 | SDK 可能只留下 -1 或空结果 | 保留 SDK_DATA_ERROR 及回执错误码依据 |
+| 畸形错误码、缺失确认、分页外层或重组后错误 | 可能被 SDK 吞掉 | 按协议错误或未知状态处理；后续成功不能抹去先前失败 |
+| 客户端、板块、缓存操作 | 无确认也可能 success=true | 必须有有效 ErrorId=0 回执；无法确认则 OPERATION_STATE_UNKNOWN |
+| 除权除息 JSON | 提前转换 DataFrame，丢失 Date 索引 | 使用公共序列化器保留 Date 和 ISO 日期；无效日期在初始化前拒绝 |
+
+在原有五个原生 RPC 包装点增加调用级证据，使用 ContextVar 隔离单次调用，兼容既有 GBK 解码与 SDK 分页处理。错误 details 仅包含方法、原生函数、请求类型、失败类别、ErrorId 和是否跨过操作边界，不保存账户号、委托参数或响应正文。SDK 自身的 stderr 诊断保持既有行为。
+
+账户 ErrorId=9 的含义已在本机只读核实为“资金账户未登录或不存在”，映射仅限 GetOrderStr/type=0。未经确认的 -1 不再作为正常未登录状态。原生操作入口缺失、SDK 签名校验失败、在已验证原生边界前终止等情形与提交后的未知状态分别处理。
+
+## uv 实测验收
+
+| 检查 | 结果 |
+| --- | --- |
+| Python 3.12.14 正式离线回归 | 390 通过，10 个 live 未选择 |
+| Python 3.13.15 正式离线回归 | 390 通过，10 个 live 未选择；uv 调用已有 3.13 环境的明确解释器 |
+| 真实客户端读取 | 10 通过，包括新增的 2024 年除权记录日期验证 |
+| 上轮真实 SDK 故障探针中属于本批的场景及对照 | 13 通过，13 项其他方向探针未选择 |
+| 语句覆盖率 | 1481 / 1572 = 94.21% |
+| 分支覆盖率 | 390 / 458 = 85.15% |
+| 覆盖率门槛 | 90% 语句、80% 分支均通过 |
+| uv build wheel / sdist | 通过 |
+| 从 sdist 重建 wheel | 通过；解包内容比较一致（排除 RECORD） |
+| 两个全新环境安装与源码目录外 smoke | Python 3.12 / 3.13 均通过，模块来自 site-packages |
+| 新文件与资源 | protocol.py 已进入 wheel；返回契约和协议回归已进入 sdist；wheel 不包含测试 |
+| 修改检查 | git diff --check 通过，Python 语法与重复修改审计通过 |
+
+离线测试从上一轮 258 项增加到 390 项，新增 132 项协议与故障回归。正式新测试位于 test_protocol.py；原有账户用例和命令替身已按真实返回契约调整。真实客户端读取只表示本机 SDK 和当前客户端的兼容结果，不包括真实委托受理、成交或撤单完成验证。
+
+独立安装 smoke 使用运行依赖解析；本轮 3.12 安装 numpy 2.5.4，3.13 安装 2.5.3，两者通过。它没有消除上一轮指出的构建/安装依赖完全锁定问题，该项仍列入后续工作。
+
+## 可审阅内容
+
+- [返回契约表](E:/allmyrepos/cli-anything-tdx-tq/SDK_RESULT_CONTRACTS.md)
+- [原生协议证据与状态分类](E:/allmyrepos/cli-anything-tdx-tq/cli_anything/tdx_tq/core/protocol.py)
+- [SDK 加载及返回校验](E:/allmyrepos/cli-anything-tdx-tq/cli_anything/tdx_tq/core/sdk.py)
+- [交易领域处理](E:/allmyrepos/cli-anything-tdx-tq/cli_anything/tdx_tq/core/trading.py)
+- [正式协议回归](E:/allmyrepos/cli-anything-tdx-tq/cli_anything/tdx_tq/tests/test_protocol.py)
+- [机器可读验收结果](E:/allmyrepos/cli-anything-tdx-tq/temp/optimization-round2-20261021/completion-facts.json)
+- [Python 3.12 完整日志](E:/allmyrepos/cli-anything-tdx-tq/temp/optimization-round2-20261021/final312.json)、[Python 3.13 日志](E:/allmyrepos/cli-anything-tdx-tq/temp/optimization-round2-20261021/final313.json)
+- [真实读取日志](E:/allmyrepos/cli-anything-tdx-tq/temp/optimization-round2-20261021/final-live.json)、[真实 SDK 故障探针日志](E:/allmyrepos/cli-anything-tdx-tq/temp/optimization-round2-20261021/final-native.json)
+- [安装包检查](E:/allmyrepos/cli-anything-tdx-tq/temp/optimization-round2-20261021/release-checks.json)
+
+## 后续顺序
+
+下一批应落实批量证券和字段完整性、公式上下文与显式选项规则、市场身份保留，再处理初始化中途失败清理、统一截止时间和资源限额。构建约束、SDK 版本矩阵、持久化操作日志与账户并发协调仍需后续建设。本轮没有宣称这些方向已完成，也没有提供跨进程恰好一次交易保证。

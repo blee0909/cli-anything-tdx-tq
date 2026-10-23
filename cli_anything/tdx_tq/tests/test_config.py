@@ -35,7 +35,7 @@ class TestConfig:
         custom_path = r'D:\custom_tdx'
         self.config.tdx_path = custom_path
         assert self.config.tdx_path == custom_path
-        assert os.environ.get('TDX_PATH') == custom_path
+        assert self.config.source == 'command_line'
         assert self.config.pyplugins_path == r'D:\custom_tdx\PYPlugins'
         assert self.config.sys_path == r'D:\custom_tdx\PYPlugins\sys'
 

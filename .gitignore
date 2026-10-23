@@ -51,3 +51,8 @@ htmlcov/
 # Temporary files
 *.tmp
 temp/
+
+# Quality reports
+coverage.json
+coverage.xml
+.coverage.*

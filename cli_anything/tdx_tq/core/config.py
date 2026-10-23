@@ -1,101 +1,101 @@
-"""
-配置管理模块
-
-管理 CLI 配置和路径设置。
-"""
-
-import os
+"""Validated configuration with explicit precedence and atomic persistence."""
 import json
+import os
+import tempfile
 from pathlib import Path
-from typing import Optional, Dict, Any
+
+from .errors import TdxConfigError
 
 
 class Config:
-    """CLI 配置管理类，支持环境变量与 ~/.tdx_tq/config.json 文件持久化"""
-
-    # 默认通达信路径
     DEFAULT_TDX_PATH = r'D:\tdx'
     DEFAULT_CONFIG_DIR = Path.home() / '.tdx_tq'
     DEFAULT_CONFIG_FILE = DEFAULT_CONFIG_DIR / 'config.json'
 
-    def __init__(self, config_file: Optional[Path] = None):
-        self._config_file = config_file or self.DEFAULT_CONFIG_FILE
-        self._tdx_path: Optional[str] = None
-        self._pyplugins_path: Optional[str] = None
-        self._sys_path: Optional[str] = None
+    def __init__(self, config_file: Path | None = None):
+        self._config_file = Path(config_file or os.environ.get('TDX_CONFIG_FILE') or self.DEFAULT_CONFIG_FILE)
+        self._tdx_path = None
+        self._override_path = None
+        self.load_error = None
         self._load_from_file()
 
+    @staticmethod
+    def _validated_path(value):
+        if not isinstance(value, str) or not value.strip():
+            raise TdxConfigError('tdx_path 必须为非空路径字符串')
+        return value.strip()
+
     def _load_from_file(self) -> None:
-        """从配置文件加载设置"""
-        if self._config_file and self._config_file.exists():
-            try:
-                with open(self._config_file, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                    if isinstance(data, dict):
-                        saved_path = data.get('tdx_path')
-                        if saved_path:
-                            self._tdx_path = saved_path
-            except Exception:
-                pass
+        if not self._config_file.exists():
+            return
+        try:
+            data = json.loads(self._config_file.read_text(encoding='utf-8'))
+            if not isinstance(data, dict) or 'tdx_path' not in data:
+                raise TdxConfigError('配置必须为包含 tdx_path 的 JSON 对象')
+            self._tdx_path = self._validated_path(data['tdx_path'])
+        except (OSError, ValueError, TdxConfigError) as exc:
+            self.load_error = str(exc)
+
+    def ensure_valid(self) -> None:
+        if self.load_error and self._override_path is None and not os.environ.get('TDX_PATH'):
+            raise TdxConfigError(f"配置文件无效 {self._config_file}: {self.load_error}；可使用 config set 修复")
+
+    def override(self, value: str | None) -> None:
+        self._override_path = self._validated_path(value) if value is not None else None
 
     def save(self) -> Path:
-        """将当前配置持久化到配置文件"""
         self._config_file.parent.mkdir(parents=True, exist_ok=True)
-        data = {
-            'tdx_path': self.tdx_path
-        }
-        with open(self._config_file, 'w', encoding='utf-8') as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
+        temporary = None
+        try:
+            with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=self._config_file.parent,
+                                             prefix='.config-', suffix='.tmp', delete=False) as handle:
+                temporary = Path(handle.name)
+                json.dump({'tdx_path': self.tdx_path}, handle, ensure_ascii=False, indent=2)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary, self._config_file)
+        finally:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
+        self.load_error = None
         return self._config_file
 
     @property
     def config_file_path(self) -> str:
-        """获取配置文件路径"""
         return str(self._config_file)
 
     @property
     def tdx_path(self) -> str:
-        """获取通达信安装路径 (环境变量 > 持久化配置 > 默认路径)"""
-        return os.environ.get('TDX_PATH') or self._tdx_path or self.DEFAULT_TDX_PATH
+        return self._override_path or os.environ.get('TDX_PATH') or self._tdx_path or self.DEFAULT_TDX_PATH
 
     @tdx_path.setter
     def tdx_path(self, value: str):
-        self._tdx_path = value
-        os.environ['TDX_PATH'] = value
+        self._tdx_path = self._validated_path(value)
+        self._override_path = self._tdx_path
+
+    @property
+    def source(self) -> str:
+        if self._override_path is not None:
+            return 'command_line'
+        return 'environment' if os.environ.get('TDX_PATH') else 'file' if self._tdx_path else 'default'
 
     @property
     def pyplugins_path(self) -> str:
-        """获取插件路径"""
-        return self._pyplugins_path or os.path.join(self.tdx_path, 'PYPlugins')
+        return os.path.join(self.tdx_path, 'PYPlugins')
 
     @property
     def sys_path(self) -> str:
-        """获取系统插件路径"""
-        return self._sys_path or os.path.join(self.pyplugins_path, 'sys')
+        return os.path.join(self.pyplugins_path, 'sys')
 
     def validate_paths(self) -> bool:
-        """验证路径是否存在"""
-        paths = [
-            self.tdx_path,
-            self.pyplugins_path,
-            self.sys_path
-        ]
-        return all(os.path.exists(p) for p in paths)
+        return all(Path(p).is_dir() for p in (self.tdx_path, self.pyplugins_path, self.sys_path))
 
-    def get_status(self) -> Dict[str, Any]:
-        """获取配置状态"""
-        return {
-            'tdx_path': self.tdx_path,
-            'tdx_exists': os.path.exists(self.tdx_path),
-            'pyplugins_path': self.pyplugins_path,
-            'pyplugins_exists': os.path.exists(self.pyplugins_path),
-            'sys_path': self.sys_path,
-            'sys_exists': os.path.exists(self.sys_path),
-            'config_file': str(self._config_file),
-            'config_file_exists': self._config_file.exists()
-        }
+    def get_status(self) -> dict:
+        return {'tdx_path': self.tdx_path, 'tdx_exists': Path(self.tdx_path).is_dir(),
+                'pyplugins_path': self.pyplugins_path, 'pyplugins_exists': Path(self.pyplugins_path).is_dir(),
+                'sys_path': self.sys_path, 'sys_exists': Path(self.sys_path).is_dir(),
+                'config_file': str(self._config_file), 'config_file_exists': self._config_file.exists(),
+                'source': self.source, 'load_error': self.load_error}
 
 
-# 全局配置实例
 config = Config()
-

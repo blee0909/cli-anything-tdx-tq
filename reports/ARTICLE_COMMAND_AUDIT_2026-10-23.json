@@ -1,0 +1,1333 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-23",
+  "timezone": "Asia/Shanghai",
+  "article_url": "https://mp.weixin.qq.com/s/6M4yowp1jQt22aPDZoiy_w",
+  "article_source": "User-provided full text; direct web fetch unavailable",
+  "environment": {
+    "platform": "Windows",
+    "python": "3.12.14 64-bit",
+    "cli_version": "1.1.0",
+    "sdk_path": "D:/tdx/PYPlugins/sys/tqcenter.py",
+    "per_command_timeout_seconds": 15
+  },
+  "scope": {
+    "live": "Read-only queries, offline preview and pre-connection invalid examples",
+    "mocked": "Valid sector/client/cache/config writes and all trade operations",
+    "not_verified": [
+      "Free vs paid client comparison",
+      "All markets and all account permissions",
+      "Actual sector UI updates and final trade state",
+      "Fresh clone and dependency installation",
+      "Nonzero limit-up status semantics and complete ladder aggregation"
+    ]
+  },
+  "offline_regression": {
+    "passed": 491,
+    "deselected_live": 13
+  },
+  "counts": {
+    "total": 41,
+    "matched": 37,
+    "unmatched": 4
+  },
+  "notes": [
+    "Nonempty JSON and exit 0 do not prove completeness, freshness, permissions or strategy semantics.",
+    "Historical financial samples remain unavailable; no professional package download performed.",
+    "Original bond sample exits 0 with an empty object and a diagnostic; replacement 113042.SH has data.",
+    "Original KDJ selection example was rejected; UPN was enumerated and tested.",
+    "Earlier whole-market get_zdt_data probe requested 5580 stocks and exceeded a separate 45-second subprocess deadline."
+  ],
+  "results": [
+    {
+      "group": "local",
+      "case": "version",
+      "args": [
+        "--version"
+      ],
+      "expected_exit": 0,
+      "exit_code": 0,
+      "stderr": "",
+      "text": "cli-anything-tdx-tq, version 1.1.0\n",
+      "matched_expectation": true,
+      "duration_seconds": 0.703
+    },
+    {
+      "group": "local",
+      "case": "help",
+      "args": [
+        "--help"
+      ],
+      "expected_exit": 0,
+      "exit_code": 0,
+      "stderr": "",
+      "text": "Usage: python -m cli_anything.tdx_tq.tdx_tq_cli [OPTIONS] COMMAND [ARGS]...\n\n  TDX TQ SDK CLI - 通达信量化接口命令行工具\n\n  基于 TQ 策略模式，提供行情、股票、板块、财务与公式的全功能命令行接口。\n\n  前置条件: 1. 通达信客户端已启动并登录 2. 通达信安装在 D:\\tdx 或通过 --tdx-path 指定\n\nOptions:\n  --version        Show the version and exit.\n  --debug          向 stderr 输出 SDK 方法和耗时诊断\n  --tdx-path TEXT  通达信安装路径 (默认 D:\\tdx)\n  --help           Show this message and exit.\n\nCommands:\n  client     通达信桌面端 GUI 联动与预警通知 (联动看盘、预警弹窗、消息推送)\n  close      关闭当前进程连接\n  config     配置管理命令\n  f",
+      "matched_expectation": true,
+      "duration_seconds": 0.735
+    },
+    {
+      "group": "local",
+      "case": "status",
+      "args": [
+        "status",
+        "--json"
+      ],
+      "expected_exit": 0,
+      "exit_code": 0,
+      "stderr": "",
+      "json_valid": true,
+      "summary": {
+        "type": "object",
+        "items": 4,
+        "keys": [
+          "session_initialized",
+          "scope",
+          "config",
+          "sdk"
+        ],
+        "scope": "process",
+        "session_initialized": false
+      },
+      "matched_expectation": true,
+      "duration_seconds": 0.718
+    },
+    {
+      "group": "local",
+      "case": "config_show",
+      "args": [
+        "config",
+        "show",
+        "--json"
+      ],
+      "expected_exit": 0,
+      "exit_code": 0,
+      "stderr": "",
+      "json_valid": true,
+      "summary": {
+        "type": "object",
+        "items": 10,
+        "keys": [
+          "tdx_path",
+          "tdx_exists",
+          "pyplugins_path",
+          "pyplugins_exists",
+          "sys_path",
+          "sys_exists",
+          "config_file",
+          "config_file_exists",
+          "source",
+          "load_error"
+        ]
+      },
+      "matched_expectation": true,
+      "duration_seconds": 0.672
+    },
+    {
+      "group": "local",
+      "case": "order_preview",
+      "args": [
+        "trade",
+        "order",
+        "-s",
+        "600519.SH",
+        "-t",
+        "buy",
+        "-v",
+        "100",
+        "-p",
+        "10",
+        "--json"
+      ],
+      "expected_exit": 0,
+      "exit_code": 0,
+      "stderr": "",
+      "json_valid": true,
+      "summary": {
+        "type": "object",
+        "items": 3,
+        "keys": [
+          "status",
+          "warning",
+          "order"
+        ]
+      },
+      "matched_expectation": true,
+      "duration_seconds": 0.688
+    },
+    {
+      "group": "local",
+      "case": "article_zdt_missing_stocks",
+      "args": [
+        "market",
+        "zdt",
+        "--json"
+      ],
+      "expected_exit": 2,
+      "exit_code": 2,
+      "stderr": "",
+      "json_valid": true,
+      "summary": {
+        "type": "object",
+        "items": 5,
+        "keys": [
+          "success",
+          "error",
+          "error_type",
+          "error_code",
+          "retryable"
+        ],
+        "error_code": "INVALID_PARAMETER",
+        "error": "Missing parameter: stocks",
+        "details": null
+      },
+      "matched_expectation": true,
+      "duration_seconds": 0.703
+    },
+    {
+      "group": "local",
+      "case": "article_pool_missing_code",
+      "args": [
+        "sector",
+        "create",
+        "-n",
+        "AI突破选股",
+        "--json"
+      ],
+      "expected_exit": 2,
+      "exit_code": 2,
+      "stderr": "",
+      "json_valid": true,
+      "summary": {
+        "type": "object",
+        "items": 5,
+        "keys": [
+          "success",
+          "error",
+          "error_type",
+          "error_code",
+          "retryable"
+        ],
+        "error_code": "INVALID_PARAMETER",
+        "error": "Missing parameter: code",
+        "details": null
+      },
+      "matched_expectation": true,
+      "duration_seconds": 0.656
+    },
+    {
+      "group": "local",
+      "case": "article_core_pool_missing_code",
+      "args": [
+        "sector",
+        "create",
+        "-n",
+        "核心资产池",
+        "--json"
+      ],
+      "expected_exit": 2,
+      "exit_code": 2,
+      "stderr": "",
+      "json_valid": true,
+      "summary": {
+        "type": "object",
+        "items": 5,
+        "keys": [
+          "success",
+          "error",
+          "error_type",
+          "error_code",
+          "retryable"
+        ],
+        "error_code": "INVALID_PARAMETER",
+        "error": "Missing parameter: code",
+        "details": null
+      },
+      "matched_expectation": true,
+      "duration_seconds": 0.703
+    },
+    {
+      "group": "local",
+      "case": "article_pool_reversed_options",
+      "args": [
+        "sector",
+        "update-stocks",
+        "-s",
+        "AI突破选股",
+        "-c",
+        "600519.SH,000001.SZ,600487.SH",
+        "--json"
+      ],
+      "expected_exit": 2,
+      "exit_code": 2,
+      "stderr": "",
+      "json_valid": true,
+      "summary": {
+        "type": "object",
+        "items": 5,
+        "keys": [
+          "success",
+          "error",
+          "error_type",
+          "error_code",
+          "retryable"
+        ],
+        "error_code": "INVALID_PARAMETER",
+        "error": "证券代码格式无效: 'AI突破选股'，例如 600519.SH",
+        "details": null
+      },
+      "matched_expectation": true,
+      "duration_seconds": 0.75
+    },
+    {
+      "group": "local",
+      "case": "article_core_pool_reversed_options",
+      "args": [
+        "sector",
+        "update-stocks",
+        "-s",
+        "核心资产池",
+        "-c",
+        "600519.SH,601318.SH",
+        "--json"
+      ],
+      "expected_exit": 2,
+      "exit_code": 2,
+      "stderr": "",
+      "json_valid": true,
+      "summary": {
+        "type": "object",
+        "items": 5,
+        "keys": [
+          "success",
+          "error",
+          "error_type",
+          "error_code",
+          "retryable"
+        ],
+        "error_code": "INVALID_PARAMETER",
+        "error": "证券代码格式无效: '核心资产池'，例如 600519.SH",
+        "details": null
+      },
+      "matched_expectation": true,
+      "duration_seconds": 0.688
+    },
+    {
+      "group": "local",
+      "case": "article_trading_invalid_option",
+      "args": [
+        "financial",
+        "trading",
+        "-s",
+        "600519.SH",
+        "--json"
+      ],
+      "expected_exit": 2,
+      "exit_code": 2,
+      "stderr": "",
+      "json_valid": true,
+      "summary": {
+        "type": "object",
+        "items": 5,
+        "keys": [
+          "success",
+          "error",
+          "error_type",
+          "error_code",
+          "retryable"
+        ],
+        "error_code": "INVALID_PARAMETER",
+        "error": "No such option '-s'.",
+        "details": null
+      },
+      "matched_expectation": true,
+      "duration_seconds": 0.719
+    },
+    {
+      "group": "market",
+      "case": "init",
+      "args": [
+        "init",
+        "--json"
+      ],
+      "expected_exit": 0,
+      "exit_code": 0,
+      "stderr": "",
+      "json_valid": true,
+      "summary": {
+        "type": "object",
+        "items": 3,
+        "keys": [
+          "success",
+          "run_id",
+          "scope"
+        ],
+        "run_id": 5,
+        "scope": "process"
+      },
+      "matched_expectation": true,
+      "duration_seconds": 1.25
+    },
+    {
+      "group": "market",
+      "case": "close",
+      "args": [
+        "close",
+        "--json"
+      ],
+      "expected_exit": 0,
+      "exit_code": 0,
+      "stderr": "",
+      "json_valid": true,
+      "summary": {
+        "type": "object",
+        "items": 2,
+        "keys": [
+          "success",
+          "scope"
+        ],
+        "scope": "process"
+      },
+      "matched_expectation": true,
+      "duration_seconds": 0.672
+    },
+    {
+      "group": "market",
+      "case": "article_kline",
+      "args": [
+        "market",
+        "get",
+        "-s",
+        "600519.SH,000001.SZ",
+        "-p",
+        "1d",
+        "-c",
+        "60",
+        "-d",
+        "front",
+        "--json"
+      ],
+      "expected_exit": 0,
+      "exit_code": 0,
+      "stderr": "",
+      "json_valid": true,
+      "summary": {
+        "type": "object",
+        "items": 2,
+        "keys": [
+          "600519.SH",
+          "000001.SZ"
+        ],
+        "first_item_fields_or_length": 60
+      },
+      "matched_expectation": true,
+      "duration_seconds": 2.328
+    },
+    {
+      "group": "market",
+      "case": "article_snapshot",
+      "args": [
+        "market",
+        "snapshot",
+        "-s",
+        "600487.SH",
+        "--json"
+      ],
+      "expected_exit": 0,
+      "exit_code": 0,
+      "stderr": "",
+      "json_valid": true,
+      "summary": {
+        "type": "object",
+        "items": 26,
+        "keys": [
+          "ErrorId",
+          "ItemNum",
+          "LastClose",
+          "Open",
+          "Max",
+          "Min",
+          "Now",
+          "Volume",
+          "NowVol",
+          "Amount",
+          "Inside",
+          "Outside"
+        ]
+      },
+      "matched_expectation": true,
+      "duration_seconds": 2.266
+    },
+    {
+      "group": "market",
+      "case": "corrected_zdt",
+      "args": [
+        "market",
+        "zdt",
+        "-s",
+        "600519.SH,000001.SZ",
+        "--json"
+      ],
+      "expected_exit": 0,
+      "exit_code": 0,
+      "stderr": "",
+      "json_valid": true,
+      "summary": {
+        "type": "object",
+        "items": 2,
+        "keys": [
+          "600519.SH",
+          "000001.SZ"
+        ],
+        "first_item_fields_or_length": [
+          "TimeNow",
+          "ZDTStatusNow",
+          "ZDTStatusOri",
+          "FirstTimeZT",
+          "FirstTimeDT",
+          "LastOpenTimeZT",
+          "LastOpenTimeDT",
+          "LastTimeZT",
+          "LastTimeDT",
+          "OpenTimesZT",
+          "OpenTimesDT",
+          "FDVolMaxZT",
+          "FDVolMaxDT",
+          "VolZT"
+        ]
+      },
+      "matched_expectation": true,
+      "duration_seconds": 2.25
+    },
+    {
+      "group": "market",
+      "case": "article_divid",
+      "args": [
+        "market",
+        "divid",
+        "-s",
+        "600487.SH",
+        "--start",
+        "20230101",
+        "--end",
+        "20241231",
+        "--json"
+      ],
+      "expected_exit": 0,
+      "exit_code": 0,
+      "stderr": "",
+      "json_valid": true,
+      "summary": {
+        "type": "array",
+        "items": 2,
+        "first_item_fields": [
+          "Date",
+          "Type",
+          "Bonus",
+          "AllotPrice",
+          "ShareBonus",
+          "Allotment"
+        ]
+      },
+      "matched_expectation": true,
+      "duration_seconds": 1.234
+    },
+    {
+      "group": "market",
+      "case": "exday",
+      "args": [
+        "market",
+        "exday",
+        "-s",
+        "600519.SH",
+        "-c",
+        "2",
+        "--json"
+      ],
+      "expected_exit": 0,
+      "exit_code": 0,
+      "stderr": "",
+      "json_valid": true,
+      "summary": {
+        "type": "array",
+        "items": 1,
+        "first_item_fields": [
+          "Date",
+          "CJBS",
+          "Vol",
+          "Amo",
+          "VolNum",
+          "BOrder",
+          "BCancel",
+          "SOrder",
+          "SCancel",
+          "BuyAvp",
+          "SellAvp",
+          "TotalBOrder",
+          "TotalSOrder"
+        ]
+      },
+      "matched_expectation": true,
+      "duration_seconds": 2.266
+    },
+    {
+      "group": "market",
+      "case": "pv",
+      "args": [
+        "market",
+        "pv",
+        "-s",
+        "600519.SH",
+        "--json"
+      ],
+      "expected_exit": 0,
+      "exit_code": 0,
+      "stderr": "",
+      "json_valid": true,
+      "summary": {
+        "type": "object",
+        "items": 1,
+        "keys": [
+          "600519.SH"
+        ],
+        "first_item_fields_or_length": [
+          "LastClose",
+          "Now",
+          "Zaf",
+          "Volume"
+        ]
+      },
+      "matched_expectation": true,
+      "duration_seconds": 2.25
+    },
+    {
+      "group": "stock",
+      "case": "info",
+      "args": [
+        "stock",
+        "info",
+        "-s",
+        "600487.SH",
+        "--json"
+      ],
+      "expected_exit": 0,
+      "exit_code": 0,
+      "stderr": "",
+      "json_valid": true,
+      "summary": {
+        "type": "object",
+        "items": 63,
+        "keys": [
+          "ErrorId",
+          "Name",
+          "Unit",
+          "VolBase",
+          "MinPrice",
+          "XsFlag",
+          "Fz",
+          "DelayMin",
+          "QHVolBaseRate",
+          "HKVolBaseRate",
+          "BelongHS300",
+          "BelongHasKQZ"
+        ]
+      },
+      "matched_expectation": true,
+      "duration_seconds": 2.282
+    },
+    {
+      "group": "stock",
+      "case": "more",
+      "args": [
+        "stock",
+        "more",
+        "-s",
+        "600519.SH",
+        "-f",
+        "HqDate,ZTPrice,DTPrice,FCAmo,EverZTCount,DynaPE,PB_MRQ,Zsz,Ltsz",
+        "--json"
+      ],
+      "expected_exit": 0,
+      "exit_code": 0,
+      "stderr": "",
+      "json_valid": true,
+      "summary": {
+        "type": "object",
+        "items": 9,
+        "keys": [
+          "HqDate",
+          "ZTPrice",
+          "DTPrice",
+          "FCAmo",
+          "EverZTCount",
+          "DynaPE",
+          "PB_MRQ",
+          "Zsz",
+          "Ltsz"
+        ],
+        "HqDate": "20261023",
+        "ZTPrice": "1450.34",
+        "DTPrice": "1186.64",
+        "FCAmo": "0.00",
+        "EverZTCount": "0",
+        "DynaPE": "18.74",
+        "PB_MRQ": "6.64",
+        "Zsz": "16688.59",
+        "Ltsz": "16688.59"
+      },
+      "matched_expectation": true,
+      "duration_seconds": 1.25
+    },
+    {
+      "group": "stock",
+      "case": "list_default",
+      "args": [
+        "stock",
+        "list",
+        "--json"
+      ],
+      "expected_exit": 0,
+      "exit_code": 0,
+      "stderr": "",
+      "json_valid": true,
+      "summary": {
+        "type": "array",
+        "items": 300
+      },
+      "matched_expectation": true,
+      "duration_seconds": 2.265
+    },
+    {
+      "group": "stock",
+      "case": "list_all_a",
+      "args": [
+        "stock",
+        "list",
+        "-m",
+        "5",
+        "--json"
+      ],
+      "expected_exit": 0,
+      "exit_code": 0,
+      "stderr": "",
+      "json_valid": true,
+      "summary": {
+        "type": "array",
+        "items": 5580
+      },
+      "matched_expectation": true,
+      "duration_seconds": 2.25
+    },
+    {
+      "group": "stock",
+      "case": "calendar",
+      "args": [
+        "stock",
+        "calendar",
+        "-c",
+        "5",
+        "--json"
+      ],
+      "expected_exit": 0,
+      "exit_code": 0,
+      "stderr": "",
+      "json_valid": true,
+      "summary": {
+        "type": "array",
+        "items": 5
+      },
+      "matched_expectation": true,
+      "duration_seconds": 1.219
+    },
+    {
+      "group": "stock",
+      "case": "article_search",
+      "args": [
+        "stock",
+        "search",
+        "-k",
+        "亨通",
+        "--json"
+      ],
+      "expected_exit": 0,
+      "exit_code": 0,
+      "stderr": "",
+      "json_valid": true,
+      "summary": {
+        "type": "array",
+        "items": 3,
+        "first_item_fields": [
+          "Code",
+          "Name"
+        ]
+      },
+      "matched_expectation": true,
+      "duration_seconds": 1.375
+    },
+    {
+      "group": "stock",
+      "case": "article_gb",
+      "args": [
+        "stock",
+        "gb",
+        "-s",
+        "600519.SH",
+        "--json"
+      ],
+      "expected_exit": 0,
+      "exit_code": 0,
+      "stderr": "",
+      "json_valid": true,
+      "summary": {
+        "type": "array",
+        "items": 5,
+        "first_item_fields": [
+          "Date",
+          "Ltgb",
+          "Zgb"
+        ]
+      },
+      "matched_expectation": true,
+      "duration_seconds": 1.312
+    },
+    {
+      "group": "stock",
+      "case": "article_kzz",
+      "args": [
+        "stock",
+        "kzz",
+        "-s",
+        "113031.SH",
+        "--json"
+      ],
+      "expected_exit": 0,
+      "exit_code": 0,
+      "stderr": "获取可转债信息异常",
+      "json_valid": true,
+      "summary": {
+        "type": "object",
+        "items": 0,
+        "keys": []
+      },
+      "nonempty_result": false,
+      "matched_expectation": false,
+      "duration_seconds": 0.625
+    },
+    {
+      "group": "sector",
+      "case": "article_sector_list",
+      "args": [
+        "sector",
+        "list",
+        "-t",
+        "0",
+        "--json"
+      ],
+      "expected_exit": 0,
+      "exit_code": 0,
+      "stderr": "",
+      "json_valid": true,
+      "summary": {
+        "type": "array",
+        "items": 587
+      },
+      "matched_expectation": true,
+      "duration_seconds": 2.266
+    },
+    {
+      "group": "sector",
+      "case": "article_sector_stocks",
+      "args": [
+        "sector",
+        "stocks",
+        "-s",
+        "半导体",
+        "--json"
+      ],
+      "expected_exit": 0,
+      "exit_code": 0,
+      "stderr": "",
+      "json_valid": true,
+      "summary": {
+        "type": "array",
+        "items": 187
+      },
+      "matched_expectation": true,
+      "duration_seconds": 2.25
+    },
+    {
+      "group": "sector",
+      "case": "sector_user",
+      "args": [
+        "sector",
+        "user",
+        "--json"
+      ],
+      "expected_exit": 0,
+      "exit_code": 0,
+      "stderr": "",
+      "json_valid": true,
+      "summary": {
+        "type": "array",
+        "items": 2,
+        "first_item_fields": [
+          "Code",
+          "Name"
+        ]
+      },
+      "matched_expectation": true,
+      "duration_seconds": 1.172
+    },
+    {
+      "group": "financial",
+      "case": "article_financial",
+      "args": [
+        "financial",
+        "get",
+        "-s",
+        "600487.SH",
+        "-f",
+        "FN1,FN4,FN6",
+        "--start",
+        "20240101",
+        "--end",
+        "20241231",
+        "--json"
+      ],
+      "expected_exit": 0,
+      "exit_code": 1,
+      "stderr": "",
+      "json_valid": true,
+      "summary": {
+        "type": "object",
+        "items": 7,
+        "keys": [
+          "success",
+          "error",
+          "error_type",
+          "error_code",
+          "retryable",
+          "details",
+          "data"
+        ],
+        "error_code": "DATA_INCOMPLETE",
+        "error": "请求的数据不完整；有可用数据时可使用 --allow-partial 查看部分结果",
+        "details": {
+          "partial": true,
+          "requested_stocks": [
+            "600487.SH"
+          ],
+          "available_stocks": [],
+          "missing_stocks": [
+            "600487.SH"
+          ],
+          "missing_fields": {
+            "600487.SH": [
+              "FN1",
+              "FN4",
+              "FN6"
+            ]
+          },
+          "missing_values": {
+            "600487.SH": {
+              "FN1": 1,
+              "FN4": 1,
+              "FN6": 1
+            }
+          },
+          "dropped_records": {
+            "600487.SH": 1
+          },
+          "record_counts": {
+            "600487.SH": 0
+          },
+          "errors": {},
+          "unexpected_stocks": [],
+          "warnings": [
+            "部分证券、字段或记录不可用；请检查缓存、日期、字段支持和权限"
+          ]
+        }
+      },
+      "matched_expectation": false,
+      "duration_seconds": 2.406
+    },
+    {
+      "group": "financial",
+      "case": "by_date",
+      "args": [
+        "financial",
+        "by-date",
+        "-s",
+        "600487.SH",
+        "-f",
+        "FN1,FN4,FN6",
+        "-y",
+        "2024",
+        "-m",
+        "1231",
+        "--json"
+      ],
+      "expected_exit": 0,
+      "exit_code": 1,
+      "stderr": "",
+      "json_valid": true,
+      "summary": {
+        "type": "object",
+        "items": 7,
+        "keys": [
+          "success",
+          "error",
+          "error_type",
+          "error_code",
+          "retryable",
+          "details",
+          "data"
+        ],
+        "error_code": "DATA_INCOMPLETE",
+        "error": "请求的数据不完整；有可用数据时可使用 --allow-partial 查看部分结果",
+        "details": {
+          "partial": true,
+          "requested_stocks": [
+            "600487.SH"
+          ],
+          "available_stocks": [],
+          "missing_stocks": [
+            "600487.SH"
+          ],
+          "missing_fields": {
+            "600487.SH": [
+              "FN1",
+              "FN4",
+              "FN6"
+            ]
+          },
+          "missing_values": {
+            "600487.SH": {
+              "FN1": 1,
+              "FN4": 1,
+              "FN6": 1
+            }
+          },
+          "dropped_records": {
+            "600487.SH": 1
+          },
+          "record_counts": {
+            "600487.SH": 0
+          },
+          "errors": {},
+          "unexpected_stocks": [],
+          "warnings": [
+            "部分证券、字段或记录不可用；请检查缓存、日期、字段支持和权限"
+          ]
+        }
+      },
+      "matched_expectation": false,
+      "duration_seconds": 2.203
+    },
+    {
+      "group": "financial",
+      "case": "corrected_trading",
+      "args": [
+        "financial",
+        "trading",
+        "--type",
+        "stock",
+        "--target",
+        "600519.SH",
+        "-f",
+        "GP1",
+        "--start",
+        "20261020",
+        "--end",
+        "20261020",
+        "--json"
+      ],
+      "expected_exit": 0,
+      "exit_code": 0,
+      "stderr": "",
+      "json_valid": true,
+      "summary": {
+        "type": "object",
+        "items": 1,
+        "keys": [
+          "600519.SH"
+        ]
+      },
+      "matched_expectation": true,
+      "duration_seconds": 1.172
+    },
+    {
+      "group": "formula",
+      "case": "article_formula_list",
+      "args": [
+        "formula",
+        "list",
+        "-t",
+        "0",
+        "--json"
+      ],
+      "expected_exit": 0,
+      "exit_code": 0,
+      "stderr": "",
+      "json_valid": true,
+      "summary": {
+        "type": "array",
+        "items": 234,
+        "first_item_fields": [
+          "acCode",
+          "acName",
+          "isSys"
+        ]
+      },
+      "matched_expectation": true,
+      "duration_seconds": 2.187
+    },
+    {
+      "group": "formula",
+      "case": "formula_info",
+      "args": [
+        "formula",
+        "info",
+        "-c",
+        "MA",
+        "-t",
+        "0",
+        "--json"
+      ],
+      "expected_exit": 0,
+      "exit_code": 0,
+      "stderr": "",
+      "json_valid": true,
+      "summary": {
+        "type": "object",
+        "items": 7,
+        "keys": [
+          "acCode",
+          "acName",
+          "isSys",
+          "ParaNum",
+          "Para",
+          "LineNum",
+          "Line"
+        ]
+      },
+      "matched_expectation": true,
+      "duration_seconds": 2.25
+    },
+    {
+      "group": "formula",
+      "case": "article_formula_zb",
+      "args": [
+        "formula",
+        "zb",
+        "-n",
+        "MA",
+        "-a",
+        "5,10,20",
+        "-s",
+        "600519.SH,000001.SZ",
+        "-c",
+        "60",
+        "--json"
+      ],
+      "expected_exit": 0,
+      "exit_code": 0,
+      "stderr": "",
+      "json_valid": true,
+      "summary": {
+        "type": "object",
+        "items": 3,
+        "keys": [
+          "000001.SZ",
+          "600519.SH",
+          "ErrorId"
+        ],
+        "first_item_fields_or_length": [
+          "MA1",
+          "MA2",
+          "MA3",
+          "MA4",
+          "MA5",
+          "MA6",
+          "MA7",
+          "MA8"
+        ]
+      },
+      "matched_expectation": true,
+      "duration_seconds": 1.157
+    },
+    {
+      "group": "formula",
+      "case": "article_formula_xg",
+      "args": [
+        "formula",
+        "xg",
+        "-n",
+        "KDJ",
+        "-a",
+        "9,3,3",
+        "-s",
+        "600519.SH,000001.SZ",
+        "--json"
+      ],
+      "expected_exit": 0,
+      "exit_code": 1,
+      "stderr": "批量执行失败: 获取公式失败或公式不存在。",
+      "json_valid": true,
+      "summary": {
+        "type": "object",
+        "items": 6,
+        "keys": [
+          "success",
+          "error",
+          "error_type",
+          "error_code",
+          "retryable",
+          "details"
+        ],
+        "error_code": "SDK_DATA_ERROR",
+        "error": "formula_process_mul_xg: TdxFuncMain rejected (ErrorId=9)",
+        "details": {
+          "method": "formula_process_mul_xg",
+          "native_function": "TdxFuncMain",
+          "request_type": "4",
+          "failure_kind": "rejected",
+          "sdk_error_id": "9",
+          "dispatch_started": false
+        }
+      },
+      "matched_expectation": false,
+      "duration_seconds": 1.187
+    },
+    {
+      "group": "formula",
+      "case": "selection_formula_list",
+      "args": [
+        "formula",
+        "list",
+        "-t",
+        "1",
+        "--json"
+      ],
+      "expected_exit": 0,
+      "exit_code": 0,
+      "stderr": "",
+      "json_valid": true,
+      "summary": {
+        "type": "array",
+        "items": 115,
+        "first_item_fields": [
+          "acCode",
+          "acName",
+          "isSys"
+        ]
+      },
+      "matched_expectation": true,
+      "duration_seconds": 2.25
+    },
+    {
+      "group": "stock",
+      "case": "active_kzz",
+      "args": [
+        "stock",
+        "kzz",
+        "-s",
+        "113042.SH",
+        "--json"
+      ],
+      "expected_exit": 0,
+      "exit_code": 0,
+      "stderr": "",
+      "json_valid": true,
+      "summary": {
+        "type": "object",
+        "items": 27,
+        "keys": [
+          "KZZCode",
+          "KZZName",
+          "HSCode",
+          "HSName",
+          "SetCode",
+          "ZGPrice",
+          "CurRate",
+          "RestScope",
+          "PutBack",
+          "ForceRedeem",
+          "ZGDate",
+          "EndPrice"
+        ]
+      },
+      "nonempty_result": true,
+      "matched_expectation": true,
+      "duration_seconds": 2.203
+    },
+    {
+      "group": "formula",
+      "case": "selection_formula_info",
+      "args": [
+        "formula",
+        "info",
+        "-c",
+        "UPN",
+        "-t",
+        "1",
+        "--json"
+      ],
+      "expected_exit": 0,
+      "exit_code": 0,
+      "stderr": "",
+      "json_valid": true,
+      "summary": {
+        "type": "object",
+        "items": 7,
+        "keys": [
+          "acCode",
+          "acName",
+          "isSys",
+          "ParaNum",
+          "Para",
+          "LineNum",
+          "Line"
+        ]
+      },
+      "nonempty_result": true,
+      "matched_expectation": true,
+      "duration_seconds": 2.172
+    },
+    {
+      "group": "formula",
+      "case": "corrected_formula_xg",
+      "args": [
+        "formula",
+        "xg",
+        "-n",
+        "UPN",
+        "-a",
+        "3",
+        "-s",
+        "600519.SH,000001.SZ",
+        "-c",
+        "60",
+        "--json"
+      ],
+      "expected_exit": 0,
+      "exit_code": 0,
+      "stderr": "",
+      "json_valid": true,
+      "summary": {
+        "type": "object",
+        "items": 3,
+        "keys": [
+          "000001.SZ",
+          "600519.SH",
+          "ErrorId"
+        ],
+        "first_item_fields_or_length": [
+          "UP3"
+        ]
+      },
+      "nonempty_result": true,
+      "matched_expectation": true,
+      "duration_seconds": 1.156
+    }
+  ]
+}

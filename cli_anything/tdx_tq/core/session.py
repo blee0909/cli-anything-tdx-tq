@@ -1,235 +1,97 @@
-"""
-会话管理模块
-
-管理与通达信 TQ 客户端 (tqcenter) 的连接状态和生命周期。
-集成 GBK 编码自动修复与标准输出清洗机制，确保 CLI 输出完全纯净。
-"""
-
-import sys
+"""Process-local session, initialized only after configuration is resolved."""
+import datetime
 import os
-import builtins
-from typing import Optional, Dict, Any
 from pathlib import Path
 
 from .config import config
-
-
-class TdxError(Exception):
-    """通达信接口基础异常"""
-    pass
-
-
-class TdxInitError(TdxError):
-    """初始化/连接错误"""
-    pass
-
-
-class TdxDataError(TdxError):
-    """数据获取错误"""
-    pass
-
-
-class TdxParamError(TdxError):
-    """参数错误"""
-    pass
-
-
-def _setup_tdx_paths():
-    """将通达信插件路径加入 sys.path"""
-    pyplugins_dir = config.pyplugins_path
-    sys_dir = config.sys_path
-
-    if os.path.exists(pyplugins_dir) and pyplugins_dir not in sys.path:
-        sys.path.insert(0, pyplugins_dir)
-    if os.path.exists(sys_dir) and sys_dir not in sys.path:
-        sys.path.insert(0, sys_dir)
-
-
-_setup_tdx_paths()
-
-
-def _patch_tqcenter_module(mod):
-    """配置 tqcenter 模块：静默输出并修复 DLL 中文编码"""
-    if mod is None:
-        return
-
-    # 1. 过滤内部连接调试 print，避免污染终端输出与 JSON 解析
-    def quiet_print(*args, **kwargs):
-        if args and isinstance(args[0], str) and any(kw in args[0] for kw in ['TQ数据', '初始化成功', '已关闭', 'TQ数据连接']):
-            return
-        kwargs['file'] = sys.stderr
-        builtins.print(*args, **kwargs)
-
-    mod.print = quiet_print
-
-    # 2. 补丁修复通达信 DLL 中文字符编码 (GBK 转 UTF-8)
-    dll = getattr(mod, 'dll', None)
-    if dll is not None and not getattr(dll, '_gbk_patched', False):
-        dll_funcs = ['GetTdxDataStr', 'GetProDataInStr', 'TdxFuncMain', 'GetOrderStr', 'SetMsgToMain']
-        for func_name in dll_funcs:
-            if hasattr(dll, func_name):
-                orig_func = getattr(dll, func_name)
-
-                def make_wrapper(fn):
-                    def wrapper(*args, **kwargs):
-                        ptr = fn(*args, **kwargs)
-                        if ptr:
-                            try:
-                                ptr.decode('utf-8')
-                                return ptr
-                            except UnicodeDecodeError:
-                                try:
-                                    return ptr.decode('gbk').encode('utf-8')
-                                except Exception:
-                                    return ptr
-                        return ptr
-                    return wrapper
-
-                setattr(dll, func_name, make_wrapper(orig_func))
-        setattr(dll, '_gbk_patched', True)
-
-    # 3. 补丁修复通达信官方 tqcenter.get_kzz_info 在无数据时空列表越界崩溃 (IndexError)
-    tq_cls = getattr(mod, 'tq', None)
-    if tq_cls is not None and not getattr(tq_cls, '_kzz_patched', False):
-        orig_get_kzz = getattr(tq_cls, 'get_kzz_info', None)
-        if orig_get_kzz is not None:
-            def safe_get_kzz_info(cls, stock_code: str = '', field_list=None):
-                try:
-                    res = orig_get_kzz(stock_code=stock_code, field_list=field_list or [])
-                    return res if isinstance(res, dict) else {}
-                except Exception:
-                    return {}
-            setattr(tq_cls, 'get_kzz_info', classmethod(safe_get_kzz_info))
-            setattr(tq_cls, '_kzz_patched', True)
-
-
-try:
-    import tqcenter
-    _patch_tqcenter_module(tqcenter)
-    tq = tqcenter.tq
-    tqconst = tqcenter.tqconst
-except ImportError:
-    tq = None
-    tqconst = None
+from .errors import TdxDataError, TdxError, TdxInitError, TdxParamError
+from .sdk import TqAdapter, load_sdk
 
 
 class Session:
-    """CLI 会话管理类"""
-
-    _instance: Optional['Session'] = None
-    _tdx: Any = None
-    _initialized: bool = False
+    _instance = None
 
     def __new__(cls):
         if cls._instance is None:
             cls._instance = super().__new__(cls)
+            cls._instance._tdx = None
+            cls._instance._initialized = False
+            cls._instance._loaded_path = None
         return cls._instance
 
-    def __init__(self):
-        pass
-
     @property
-    def tdx(self) -> Any:
-        """获取 tq 实例"""
+    def tdx(self):
         if self._tdx is None:
             self._ensure_tq_module()
-            self._tdx = tq
         return self._tdx
 
     @property
     def is_initialized(self) -> bool:
-        """是否已初始化"""
         return self._initialized and getattr(self._tdx, 'run_id', -1) >= 0
 
     def _ensure_tq_module(self):
-        """确保 tqcenter 模块已加载并完成补丁"""
-        global tq, tqconst
-        if tq is None:
-            _setup_tdx_paths()
-            try:
-                import tqcenter
-                _patch_tqcenter_module(tqcenter)
-                tq = tqcenter.tq
-                tqconst = tqcenter.tqconst
-            except Exception as e:
-                raise TdxInitError(
-                    f"无法加载通达信 TQ 插件: {e}\n"
-                    f"当前通达信路径: {config.tdx_path}\n"
-                    f"请确保通达信安装在 {config.tdx_path} 且包含 PYPlugins/sys/tqcenter.py。"
-                )
-        self._tdx = tq
+        path = str(Path(config.tdx_path).expanduser().resolve())
+        if self._loaded_path is not None and self._loaded_path != path:
+            raise TdxInitError("当前进程的 SDK 路径与配置不一致，请在新进程中切换路径")
+        if self._tdx is None:
+            self._tdx = TqAdapter(load_sdk(path))
+            self._loaded_path = path
 
-    def initialize(self, script_path: Optional[str] = None) -> None:
-        """
-        初始化连接
-
-        Args:
-            script_path: 脚本标识路径
-        """
-        if self._initialized and getattr(self._tdx, 'run_id', -1) >= 0:
-            return
-
+    def initialize(self, script_path: str | None = None) -> None:
+        config.ensure_valid()
         self._ensure_tq_module()
-
-        if not script_path:
-            script_path = os.path.abspath(__file__)
-
+        if self.is_initialized:
+            return
         try:
-            self._tdx.initialize(script_path)
-        except Exception as e:
-            raise TdxInitError(f"通达信 TQ 连接初始化异常: {e}")
-
-        run_id = getattr(self._tdx, 'run_id', -1)
-        if run_id < 0:
-            raise TdxInitError(
-                "通达信连接失败 (run_id < 0)。\n"
-                "请检查：\n"
-                "1. 通达信客户端 (TdxW.exe) 是否已启动并登录成功\n"
-                f"2. 通达信安装路径是否正确 (当前: {config.tdx_path})\n"
-                "3. 是否有其他同名脚本正在占用连接"
-            )
-
+            # Each process owns its connection identity; parallel CLIs must not share it.
+            identity = script_path or f"{os.path.abspath(__file__)}.{os.getpid()}"
+            self._tdx.initialize(identity)
+            if getattr(self._tdx, 'run_id', -1) < 0:
+                raise TdxInitError("通达信连接失败 (run_id < 0)，请检查客户端登录状态和 SDK 路径")
+        except TdxError:
+            raise
+        except Exception as exc:
+            raise TdxInitError(f"通达信初始化失败: {exc}") from exc
         self._initialized = True
 
     def close(self) -> None:
-        """关闭连接"""
-        if self._initialized and self._tdx is not None:
-            try:
+        try:
+            if self._initialized and self._tdx is not None:
                 self._tdx.close()
-            except Exception:
-                pass
-            finally:
-                self._initialized = False
+        finally:
+            self._initialized = False
 
     def ensure_initialized(self) -> None:
-        """确保已初始化"""
         if not self.is_initialized:
             self.initialize()
+        elif self._loaded_path != str(Path(config.tdx_path).expanduser().resolve()):
+            raise TdxInitError("SDK 路径已改变，请在新进程中重新连接")
 
     def get_recent_trading_dates(self, count: int = 5, market: str = 'AG') -> list:
-        """获取最近 N 个交易日列表 (带自动容错回退)"""
+        if count <= 0:
+            raise TdxParamError("交易日数量必须大于零")
         self.ensure_initialized()
-        try:
-            dates = self.tdx.get_trading_dates(market=market, start_time='', end_time='', count=count)
-            if dates and len(dates) >= count:
-                return dates[-count:]
-            elif dates:
-                return dates
-        except Exception:
-            pass
+        dates = self.tdx.get_trading_dates(market=market, start_time='', end_time='', count=count)
+        if not isinstance(dates, (list, tuple)) or not dates:
+            raise TdxDataError("交易日历不可用，无法推算真实交易日期")
+        validated = []
+        for value in dates:
+            value = str(value)
+            try:
+                date = datetime.datetime.strptime(value, '%Y%m%d')
+            except ValueError as exc:
+                raise TdxDataError(f"SDK 返回无效交易日: {value}") from exc
+            if date.weekday() >= 5:
+                raise TdxDataError(f"SDK 返回非交易日: {value}")
+            if value not in validated:
+                validated.append(value)
+        return sorted(validated)[-count:]
 
-        import datetime
-        now = datetime.datetime.now()
-        fallback_dates = []
-        for i in range(count):
-            d = now - datetime.timedelta(days=i)
-            fallback_dates.append(d.strftime('%Y%m%d'))
-        return fallback_dates[::-1]
-
-    def __del__(self):
-        if self._initialized:
-            self.close()
+    def diagnostics(self) -> dict:
+        info = {'configured_path': config.tdx_path, 'loaded_module_path': None, 'dll_path': None}
+        if isinstance(self._tdx, TqAdapter):
+            info.update(self._tdx.diagnostics())
+        return info
 
 
-# 全局会话实例
 session = Session()

@@ -27,10 +27,9 @@ class TestSession:
         """测试初始状态属性"""
         assert isinstance(session.is_initialized, bool)
 
+    @pytest.mark.live
     def test_session_initialize_and_close(self):
         """测试初始化与正常关闭"""
-        if not os.path.exists(config.sys_path):
-            pytest.skip("通达信安装路径不存在，跳过联调测试")
 
         session.initialize()
         assert session.is_initialized is True

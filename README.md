@@ -1,226 +1,82 @@
 # TDX TQ SDK CLI
 
-通达信量化接口命令行工具 - 基于 TQ 策略模式
+通达信 TQ SDK 的 Windows 命令行工具，支持行情、股票、板块、财务、公式及交易操作。长命令 `cli-anything-tdx-tq` 与短命令 `tdx-tq` 使用同一入口。
 
 ## 安装
 
-### 前置条件
+需要 Windows、Python 3.12/3.13。读取数据前启动并登录支持 TQ 的通达信客户端，确认安装目录中存在 `PYPlugins/sys/tqcenter.py` 及配套 DLL；默认路径为 `D:\tdx`。
 
-1. **通达信客户端**：已启动并登录
-2. **通达信安装路径**：默认 `D:\tdx`，可通过环境变量 `TDX_PATH` 修改
-3. **Python 3.8+**
+~~~powershell
+uv sync --locked
+uv run --locked tdx-tq --version
+uv run --locked tdx-tq status --json
+~~~
 
-### 安装步骤
+自定义路径可通过全局 `--tdx-path`、环境变量 `TDX_PATH` 或配置文件指定，优先级依次降低：
 
-```bash
-# 进入 cli_agent 目录
-cd cli_agent
+~~~powershell
+uv run --locked tdx-tq config set --tdx-path D:\tdx --json
+uv run --locked tdx-tq --tdx-path D:\tdx market snapshot -s 600519.SH --json
+~~~
 
-# 安装依赖
-pip install -e .
-```
+## 常用命令
 
-### 验证安装
+证券代码需要市场后缀，如 `600519.SH`。列表参数支持逗号、空白分隔及 `-` 标准输入，标准输入也可使用 JSON 字符串数组。各命令参数以 `--help` 为准。
 
-```bash
-# 检查 CLI 是否可用
-cli-anything-tdx-tq --version
+~~~powershell
+# K 线：最近 60 条日线
+uv run --locked tdx-tq market get -s 600519.SH,000001.SZ -p 1d -c 60 --json
+# 日期区间，与显式 --count 互斥
+uv run --locked tdx-tq market get -s 600519.SH --start 20261001 --end 20261020 --json
+# 指定股票的涨跌停明细，必须提供 -s
+uv run --locked tdx-tq market zdt -s 600519.SH,000001.SZ --json
+# 扩展信息与估值
+uv run --locked tdx-tq stock more -s 600519.SH -f HqDate,ZTPrice,DTPrice,DynaPE,PB_MRQ --json
+# A 股列表；默认 -m 23 为沪深300
+uv run --locked tdx-tq stock list -m 5 --json
+# 批量计算指标
+uv run --locked tdx-tq formula zb -n MA -a 5,10,20 -s 600519.SH,000001.SZ -c 60 --json
+~~~
 
-# 查看帮助
-cli-anything-tdx-tq --help
-```
+| 命令组 | 命令 |
+|---|---|
+| 全局 | init、close、status |
+| market | get、snapshot、divid、zdt、exday、pv、refresh |
+| stock | info、more、list、calendar、search、gb、kzz |
+| sector | list、stocks、user、create、delete、rename、clear、update-stocks |
+| financial | get、by-date、trading |
+| formula | list、info、zb、xg |
+| client | link、warn、msg |
+| trade | account、asset、positions、orders、order、cancel |
+| config | show、set |
 
-## 快速开始
+## 必要说明
 
-### 1. 查看状态
+- `status` 只做离线诊断；`init/close` 的连接仅在当前进程有效，后续命令会自行连接。`--debug` 向 stderr 输出 SDK 耗时。
+- `market zdt` 不自动生成全市场涨停天梯；`market exday` 是日线成交与委托统计，交易日历使用 `stock calendar`。
+- 历史行情、专业财务和部分统计依赖客户端数据包。空结果、零值和缺少参数不能直接证明需要付费；字段、日期、权限和公式类别均需核对。
+- K 线和专业财务默认检查请求完整性，不完整时返回 `DATA_INCOMPLETE`。有可用部分时可指定 `--allow-partial`；全部无数据时仍失败。K 线支持 `-o` 导出 `.csv/.json/.xlsx`。
 
-```bash
-cli-anything-tdx-tq status
-```
+板块代码与显示名称分开指定。以下命令会实际修改客户端板块：
 
-### 2. 获取行情数据
+~~~powershell
+uv run --locked tdx-tq sector create -c AIPOOL -n "AI观察池" --json
+uv run --locked tdx-tq sector update-stocks -c AIPOOL -s 600519.SH,000001.SZ --json
+~~~
 
-```bash
-# 获取日线数据
-cli-anything-tdx-tq market get -s 600487.SH,000001.SZ -p 1d -c 60
+交易委托默认仅预览，添加 `--confirm` 才提交；`trade cancel` 没有预览模式。SDK 受理不代表成交或最终撤单成功，状态未知时先查询核对，不自动重复提交。
 
-# 获取实时行情
-cli-anything-tdx-tq market snapshot -s 600487.SH
+~~~powershell
+uv run --locked tdx-tq trade order -s 600519.SH -t buy -v 100 -p 10 --json
+~~~
 
-# 获取除权除息数据
-cli-anything-tdx-tq market divid -s 600487.SH
-```
+## 输出与测试
 
-### 3. 获取股票信息
+叶子命令支持 `--json`，诊断日志进入 stderr；帮助和版本输出仍为文本。退出码：0 成功、2 参数错误、1 操作或 SDK 错误、130 中止。部分接口退出 0 仍可能返回空数据，调用方应检查内容。
 
-```bash
-# 获取基础信息
-cli-anything-tdx-tq stock info -s 600487.SH
+~~~powershell
+uv sync --locked --extra test
+uv run --locked --extra test pytest -m "not live" -q
+~~~
 
-# 获取更多信息
-cli-anything-tdx-tq stock more -s 600487.SH
-```
-
-### 4. 获取板块数据
-
-```bash
-# 获取行业板块列表
-cli-anything-tdx-tq sector list -t 0
-
-# 获取板块成分股
-cli-anything-tdx-tq sector stocks -s 半导体
-```
-
-### 5. 获取财务数据
-
-```bash
-cli-anything-tdx-tq financial get -s 600487.SH -f FN1,FN4,FN6 --start 20240101 --end 20241231
-```
-
-### 6. 调用公式
-
-```bash
-# 调用指标公式
-cli-anything-tdx-tq formula zb -n MA -a 5,10,20
-
-# 调用选股公式
-cli-anything-tdx-tq formula xg -n KDJ -a 9,3,3
-```
-
-### 7. 导出 JSON 格式
-
-```bash
-# 所有命令都支持 --json 输出
-cli-anything-tdx-tq stock info -s 600487.SH --json
-```
-
-## 命令参考
-
-### 全局命令
-
-| 命令 | 说明 |
-|------|------|
-| `init` | 初始化连接 |
-| `close` | 关闭连接 |
-| `status` | 查看状态 |
-| `config` | 配置管理 (支持 ~/.tdx_tq/config.json 持久化) |
-
-> 快捷提示：可以使用短别名 `tdx-tq` 替代长命令 `cli-anything-tdx-tq`。支持标准输入管道（例如 `echo 600519.SH | tdx-tq market snapshot -s - --json`）。
-
-### market - 行情数据
-
-| 命令 | 说明 |
-|------|------|
-| `market get` | 获取 K 线数据 (完整保留日期与 OHLCV) |
-| `market snapshot` | 获取实时行情快照 (支持多代码与管道) |
-| `market divid` | 获取除权除息数据 |
-| `market zdt` | 获取股票涨跌停价格与停牌状态 |
-| `market pv` | 获取量价聚合统计 |
-
-### stock - 股票信息
-
-| 命令 | 说明 |
-|------|------|
-| `stock info` | 获取股票基础财务与属性信息 |
-| `stock more` | 获取股票进阶信息 |
-| `stock list` | 获取全市场股票代码列表 |
-| `stock search` | 股票代码/名称模糊匹配搜索 |
-| `stock gb` | 获取股本变动信息 (自动匹配有效交易日) |
-| `stock kzz` | 获取可转债信息 |
-| `stock calendar`| 查询交易日历 |
-
-### sector - 板块数据
-
-| 命令 | 说明 |
-|------|------|
-| `sector list` | 获取板块列表 |
-| `sector stocks` | 获取板块成分股 |
-| `sector user` | 获取用户自选/自定义板块 |
-| `sector create` | 创建新的自定义板块 |
-| `sector delete` | 删除指定的自定义板块 |
-| `sector rename` | 重命名自定义板块 |
-| `sector clear` | 清空自定义板块成分股 |
-| `sector update-stocks` | 更新自定义板块成分股 |
-
-### client - 桌面客户端联动与预警
-
-| 命令 | 说明 |
-|------|------|
-| `client link` | 联动通达信桌面客户端切换并展示指定股票 K 线 |
-| `client warn` | 向通达信桌面端发送交易预警气泡弹窗 |
-| `client msg` | 向通达信客户端发送文字通知 |
-
-### trade - 交易与账户管理
-
-| 命令 | 说明 |
-|------|------|
-| `trade account` | 查询当前交易账户状态与 ID |
-| `trade asset` | 查询资金账户总资产与可用余额 |
-| `trade positions` | 查询股票持仓与盈亏明细 |
-| `trade orders` | 查询当日委托订单列表 |
-| `trade order` | 提交买卖委托 (默认安全预览，需 `--confirm` 确认) |
-| `trade cancel` | 撤销已提交的委托订单 |
-
-### financial - 财务数据
-
-| 命令 | 说明 |
-|------|------|
-| `financial get` | 获取专业财务数据 (注: 需客户端下载离线财务数据包) |
-| `financial by-date` | 按指定报告期获取财务数据 |
-| `financial trading` | 获取股票/板块/市场交易统计数据 |
-
-### formula - 公式调用
-
-| 命令 | 说明 |
-|------|------|
-| `formula list` | 获取所有指标或选股公式列表 |
-| `formula info` | 获取指定公式的参数与定义 |
-| `formula zb` | 调用指标公式并计算 |
-| `formula xg` | 调用选股公式筛选股票 |
-
-## 环境变量
-
-| 变量 | 说明 | 默认值 |
-|------|------|--------|
-| `TDX_PATH` | 通达信安装路径 | `D:\tdx` |
-
-## 输出格式
-
-### JSON 模式
-
-所有命令都支持 `--json` 选项，输出 JSON 格式数据，便于 Agent 消费：
-
-```bash
-cli-anything-tdx-tq stock info -s 600487.SH --json
-```
-
-### 表格模式（默认）
-
-默认输出为人类可读的表格格式。
-
-## 故障排除
-
-### 错误：初始化失败
-
-确保：
-1. 通达信客户端已启动并登录
-2. 通达信安装路径正确
-3. `D:\tdx\PYPlugins\sys\tqcenter.py` 存在
-
-### 错误：模块未找到
-
-运行 `pip install -e .` 重新安装。
-
-## 开发
-
-```bash
-# 开发模式安装
-pip install -e .
-
-# 运行测试
-pytest tests/
-```
-
-## License
-
-MIT
+真实只读测试需显式添加 `--live -m live`；离线测试使用替身，不提交真实交易。SDK 契约见 [SDK_RESULT_CONTRACTS.md](SDK_RESULT_CONTRACTS.md)，架构说明见 [TDX_TQ_SDK.md](TDX_TQ_SDK.md)。许可为 MIT。

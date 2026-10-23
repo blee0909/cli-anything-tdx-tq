@@ -1,84 +1,59 @@
-"""
-数据导出模块
-
-导出数据到各种格式（CSV, JSON, Excel）。
-"""
+"""Atomic exports with consistent date/index and extension semantics."""
+import argparse
+import os
+import tempfile
+from pathlib import Path
 
 import pandas as pd
-from pathlib import Path
-from typing import Dict, Any, Optional, Union
+
+from ..utils.output import dataframe_records, to_json
+
+EXTENSIONS = {'csv': '.csv', 'json': '.json', 'excel': '.xlsx'}
 
 
-def export_dataframe(
-    df: pd.DataFrame,
-    output_path: str,
-    format: str = 'csv',
-    **kwargs
-) -> str:
-    """
-    导出 DataFrame 到文件
-
-    Args:
-        df: 要导出的 DataFrame
-        output_path: 输出文件路径
-        format: 输出格式 ('csv', 'json', 'excel')
-
-    Returns:
-        输出文件路径
-    """
+def export_dataframe(df: pd.DataFrame, output_path: str, format: str = 'csv', **kwargs) -> str:
+    if format not in EXTENSIONS:
+        raise ValueError(f"不支持的格式: {format}")
     path = Path(output_path)
+    if path.suffix.lower() != EXTENSIONS[format]:
+        raise ValueError(f"{format} 导出需要 {EXTENSIONS[format]} 扩展名")
     path.parent.mkdir(parents=True, exist_ok=True)
-
-    if format == 'csv':
-        df.to_csv(path, index=True, encoding='utf-8-sig')
-    elif format == 'json':
-        df.to_json(path, orient='records', force_ascii=False, indent=2)
-    elif format == 'excel':
-        df.to_excel(path, index=True, engine='openpyxl')
-    else:
-        raise ValueError(f"不支持的格式：{format}")
-
+    fd, name = tempfile.mkstemp(dir=path.parent, prefix='.export-', suffix=path.suffix)
+    os.close(fd)
+    temporary = Path(name)
+    try:
+        if format == 'csv':
+            df.to_csv(temporary, index=not isinstance(df.index, pd.RangeIndex) or df.index.name is not None,
+                      encoding='utf-8-sig')
+        elif format == 'json':
+            temporary.write_text(to_json(dataframe_records(df)), encoding='utf-8')
+        else:
+            df.to_excel(temporary, index=not isinstance(df.index, pd.RangeIndex) or df.index.name is not None,
+                        engine='openpyxl')
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
     return str(path)
 
 
-def export_dict(
-    data: Dict[str, Any],
-    output_dir: str,
-    format: str = 'csv',
-    prefix: str = ''
-) -> Dict[str, str]:
-    """
-    导出字典数据到文件
-
-    Args:
-        data: 数据字典，键为文件名前缀，值为 DataFrame
-        output_dir: 输出目录
-        format: 输出格式
-        prefix: 文件名前缀
-
-    Returns:
-        输出文件路径字典
-    """
+def export_dict(data: dict, output_dir: str, format: str = 'csv', prefix: str = '') -> dict[str, str]:
+    if format not in EXTENSIONS:
+        raise ValueError(f"不支持的格式: {format}")
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
-
-    exported_files = {}
-
+    exported = {}
     for key, df in data.items():
         if isinstance(df, pd.DataFrame):
-            filename = f"{prefix}{key}.{format}"
-            filepath = output_path / filename
-            export_dataframe(df, str(filepath), format=format)
-            exported_files[key] = str(filepath)
-
-    return exported_files
+            stem = f'{prefix}{key}'
+            if any(c in stem for c in ('/', '\\', ':')) or stem in ('.', '..'):
+                raise ValueError(f"无效导出文件名: {stem}")
+            path = output_path / (stem + EXTENSIONS[format])
+            exported[key] = export_dataframe(df, str(path), format=format)
+    return exported
 
 
 def create_export_parser():
-    """创建导出参数解析器"""
-    import argparse
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument('-o', '--output', required=True, help='输出文件路径')
-    parser.add_argument('-f', '--format', choices=['csv', 'json', 'excel'], default='csv',
-                       help='输出格式')
+    parser.add_argument('-f', '--format', choices=tuple(EXTENSIONS), default='csv', help='输出格式')
     return parser

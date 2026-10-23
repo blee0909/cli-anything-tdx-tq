@@ -1,286 +1,30 @@
-# TDX TQ SDK CLI 测试计划
+# 测试与验收
 
-## 测试范围
+所有命令在仓库根目录执行，使用 Python 3.12/3.13 和 uv.lock。
 
-### 单元测试
-- 会话管理模块 (session.py)
-- 配置管理模块 (config.py)
-- 输出格式化模块 (output.py)
-- 数据导出模块 (export.py)
+~~~powershell
+uv sync --locked --extra test
+uv run --locked --extra test pytest -m "not live" --cov=cli_anything/tdx_tq --cov-report=json:coverage.json
+uv run --locked python scripts/check_coverage.py coverage.json
+uv run --locked --extra test pytest --live -m live -q
+uv build
+~~~
 
-### E2E 测试
-- 命令行接口测试
-- 数据获取流程测试
-- 导出功能测试
+默认测试不需要通达信。--live 显式启用只读客户端测试，要求 SDK 路径正确且客户端已登录。已启用真实测试时，接口失败必须失败。取得明确无可用账户的协议回执时返回 logged_in=false、state=unavailable；无法确认时应失败，不能仅凭 -1 推断未登录。任何实际下单、撤单、板块写入和 GUI 通知均不属于真实集成测试。
 
-### 集成测试
-- 与 tqcenter 模块集成
-- 与通达信客户端集成
+| 文件 | 验证内容 |
+|---|---|
+| test_config.py、test_resilience.py | 配置来源、损坏诊断、原子替换、异常处理 |
+| test_output.py、test_export.py | 文本和严格 JSON、索引保留、CSV/JSON/XLSX |
+| test_session.py、test_sdk.py | 惰性加载、SDK 来源、兼容补丁、初始化和日历 |
+| test_regressions.py | 评估发现的交易、时间和序列化缺陷 |
+| test_contracts.py | 全部叶子命令的 JSON/文本成功路径、JSON 错误契约及交易参数映射 |
+| test_full_e2e.py | 真实进程入口和显式客户端读取 |
 
-## 测试环境要求
+通过率和代码覆盖率分别统计。coverage 包含 CLI 子进程，排除测试源码；脚本门禁分别要求语句 90%、分支 80%。不使用通过数/测试数作为代码覆盖率。
 
-1. **通达信客户端**：已启动并登录
-2. **通达信安装路径**：`D:\new_tdx64`
-3. **Python 3.8+**
-4. **依赖包**：click, pandas, numpy
+默认缓存或临时目录受限时，为 uv 指定 --cache-dir，为 pytest 指定仓库内独立 --basetemp，并使用 -p no:cacheprovider。覆盖率报告及构建产物属于生成文件。
 
-## 单元测试计划
+第二轮协议回归见 test_protocol.py：使用内存原生函数验证正常空集合、原生空响应/异常/超时、明确拒绝、畸形错误码、分页重组、账户状态、写操作回执和除权日期保留。真实除权日期读取纳入 test_full_e2e.py 的 --live 场景。
 
-### 1. 测试配置管理 (test_config.py)
-
-```python
-def test_config_default_paths():
-    """测试默认路径配置"""
-
-def test_config_custom_path():
-    """测试自定义路径配置"""
-
-def test_config_validate_paths():
-    """测试路径验证"""
-```
-
-### 2. 测试输出格式化 (test_output.py)
-
-```python
-def test_to_json_dataframe():
-    """测试 DataFrame 转 JSON"""
-
-def test_to_json_dict():
-    """测试字典转 JSON"""
-
-def test_format_table():
-    """测试表格格式化"""
-
-def test_format_output_json():
-    """测试 JSON 格式输出"""
-
-def test_format_output_text():
-    """测试文本格式输出"""
-```
-
-### 3. 测试会话管理 (test_session.py)
-
-```python
-def test_session_singleton():
-    """测试单例模式"""
-
-def test_session_initialize():
-    """测试初始化连接"""
-
-def test_session_close():
-    """测试关闭连接"""
-```
-
-### 4. 测试数据导出 (test_export.py)
-
-```python
-def test_export_dataframe_csv():
-    """测试导出 DataFrame 为 CSV"""
-
-def test_export_dataframe_json():
-    """测试导出 DataFrame 为 JSON"""
-
-def test_export_dict():
-    """测试导出字典数据"""
-```
-
-## E2E 测试计划
-
-### 1. 测试 CLI 基础命令 (test_cli_base.py)
-
-```python
-def test_cli_version():
-    """测试版本号"""
-
-def test_cli_help():
-    """测试帮助信息"""
-
-def test_cli_status():
-    """测试状态查询"""
-```
-
-### 2. 测试行情数据命令 (test_cli_market.py)
-
-```python
-def test_market_get():
-    """测试获取 K 线数据"""
-
-def test_market_snapshot():
-    """测试获取实时行情"""
-
-def test_market_divid():
-    """测试获取除权除息数据"""
-```
-
-### 3. 测试股票信息命令 (test_cli_stock.py)
-
-```python
-def test_stock_info():
-    """测试获取股票信息"""
-
-def test_stock_more():
-    """测试获取更多信息"""
-```
-
-### 4. 测试板块数据命令 (test_cli_sector.py)
-
-```python
-def test_sector_list():
-    """测试获取板块列表"""
-
-def test_sector_stocks():
-    """测试获取板块成分股"""
-```
-
-### 5. 测试 JSON 输出 (test_cli_json.py)
-
-```python
-def test_json_output():
-    """测试 JSON 格式输出"""
-```
-
-## 测试场景
-
-### 场景 1：获取股票数据并导出
-
-```bash
-# 获取亨通光电日线数据
-cli-anything-tdx-tq market get -s 600487.SH -c 60 -o output.csv
-
-# 验证输出文件存在
-# 验证数据格式正确
-```
-
-### 场景 2：获取板块成分股
-
-```bash
-# 获取半导体板块所有股票
-cli-anything-tdx-tq sector stocks -s 半导体 --json > semiconductor.json
-
-# 验证返回的股票列表
-```
-
-### 场景 3：批量获取财务数据
-
-```bash
-# 获取多只股票的财务数据
-cli-anything-tdx-tq financial get -s 600487.SH,000001.SZ -f FN1,FN4,FN6
-
-# 验证返回的数据完整性
-```
-
-## 测试通过标准
-
-1. **单元测试**：100% 通过率
-2. **E2E 测试**：所有关键流程通过
-3. **输出验证**：数据格式正确、内容完整
-4. **错误处理**：异常情况正确报错
-
-## 测试执行
-
-```bash
-# 运行单元测试
-pytest tests/unit -v
-
-# 运行 E2E 测试
-pytest tests/e2e -v
-
-# 运行所有测试
-pytest -v --tb=short
-```
-
-## 已知限制
-
-1. 需要通达信客户端运行才能执行 E2E 测试
-2. 部分接口需要会员权限
-3. 数据更新依赖通达信服务器
-
-## 测试时间表
-
-| 阶段 | 内容 | 预计时间 |
-|------|------|----------|
-| Phase 1 | 单元测试编写 | 2 小时 |
-| Phase 2 | E2E 测试编写 | 3 小时 |
-| Phase 3 | 测试执行和修复 | 2 小时 |
-| Phase 4 | 文档整理 | 1 小时 |
-
-## 测试结果
-
-### 执行日期
-2026-03-27
-
-### 测试环境
-- Python 3.14.3
-- pytest 9.0.2
-- Windows 11
-
-### 单元测试结果
-
-**test_config.py (4 测试)**
-- ✓ test_config_default_paths
-- ✓ test_config_custom_path
-- ✓ test_config_get_status
-- ✓ test_config_validate_paths
-
-**test_session.py (3 测试)**
-- ✓ test_session_singleton
-- ✓ test_session_initial_state
-- ✓ test_session_initialize_and_close
-
-**test_output.py (9 测试)**
-- ✓ test_to_json_dict
-- ✓ test_to_json_dataframe
-- ✓ test_to_json_custom_indent
-- ✓ test_to_json_ensure_ascii
-- ✓ test_format_table_dataframe
-- ✓ test_format_table_dict
-- ✓ test_format_table_list
-- ✓ test_format_output_json
-- ✓ test_format_output_text
-
-**test_export.py (5 测试)**
-- ✓ test_export_dataframe_csv
-- ✓ test_export_dataframe_json
-- ✓ test_export_dataframe_invalid_format
-- ✓ test_export_dict_csv
-- ✓ test_export_dict_with_prefix
-
-### E2E 真实数据与命令测试结果
-
-**test_full_e2e.py (17 测试)**
-- ✓ TestCLIBase::test_cli_version
-- ✓ TestCLIBase::test_cli_help (包含 client, trade 等全功能组)
-- ✓ TestCLIBase::test_cli_status
-- ✓ TestCLIMarket::test_market_get_help
-- ✓ TestCLIMarket::test_market_snapshot_help
-- ✓ TestCLIMarket::test_market_snapshot_live (实测真实行情快照)
-- ✓ TestCLIMarket::test_market_get_live (实测真实K线数据与日期保留)
-- ✓ TestCLIStock::test_stock_info_help
-- ✓ TestCLIStock::test_stock_info_live (实测真实股票属性与中文解码)
-- ✓ TestCLIStock::test_stock_search_live (实测真实名称模糊匹配)
-- ✓ TestCLIStock::test_stock_gb_live (实测股本变动信息与有效交易日匹配)
-- ✓ TestCLISector::test_sector_list_help
-- ✓ TestCLISector::test_sector_list_live (实测真实行业板块数据)
-- ✓ TestCLIFormula::test_formula_list_live (实测通达信公式列表)
-- ✓ TestCLITrade::test_trade_help (实测交易命令帮助)
-- ✓ TestCLITrade::test_trade_account_live (实测交易账户状态查询)
-- ✓ TestCLITrade::test_trade_order_preview (实测交易委托安全预览模式)
-
-### 测试覆盖率
-
-| 模块 | 测试数 | 通过数 | 覆盖率 |
-|------|--------|--------|--------|
-| config.py | 4 | 4 | 100% |
-| session.py | 3 | 3 | 100% |
-| output.py | 9 | 9 | 100% |
-| export.py | 5 | 5 | 100% |
-| CLI 综合与实测 | 17 | 17 | 100% |
-| **总计** | **38** | **38** | **100%** |
-
-### 测试摘要
-
-```
-============================= 38 passed in 20.77s =============================
-```
-
-所有 38 个单元测试与真实数据 E2E 测试全部 100% 通过！CLI 基础底座已完成现代化打包规范、多进程配置持久化、参数自适应交易日补全、GUI 联动以及实盘交易闭环能力的升级。
+第三轮回归见 test_data_quality.py：87 个新增场景覆盖数量/区间互斥、日期精度与边界、无填充、实际可用证券、缺字段/缺值、严格导出保护、部分结果信封、整数成功码在供应商字符串比较前规范化、Value 丢失检测和跨页面 Errors 保留。test_full_e2e.py 新增历史单日区间与批量缺数据的严格/部分模式真实读取。2026-10-21 本轮快照为 Python 3.12/3.13 各 477 项离线通过，13 项真实只读通过；补充长区间实测取得 190 条，供应商原生函数全部替换的补充兼容探针 17 项通过。详细边界与证据见仓库根目录 FOUNDATION_OPTIMIZATION_ROUND3_2026-10-21.md。

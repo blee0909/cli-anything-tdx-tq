@@ -1,0 +1,167 @@
+**项目底座第二轮实测评估 — 2026-10-21**
+
+本轮结论：上一轮加固已使项目具备可重复测试、独立安装、延迟加载 SDK 和较规范错误输出的基础；当前主要短板集中在 **SDK 返回值语义、数据完整性和故障后的状态判断**。现有测试全绿可以证明已覆盖场景稳定，尚不足以证明交易与客户端操作适合无人值守运行。建议先补齐这些契约，再扩展命令和提高吞吐。
+
+评估对象为 E:/allmyrepos/cli-anything-tdx-tq 的当前工作区，包含上一轮尚未提交的加固内容；Git 基点为 a998d20，不能仅用该提交重现本报告。本轮没有修改业务源码或正式测试，只新增本报告及 temp/ 下的评估材料。真实客户端验证限定读取；交易、撤单、客户端跳转及板块写操作的故障案例均在替换原生调用后执行，没有真实提交。
+
+**实测事实与范围**
+
+环境为 Windows、uv 0.12.17、Python 3.12.14 / 3.13.15。本机真实 SDK 为 D:/tdx/PYPlugins/sys/tqcenter.py，SHA-256：241358919fd394751a46bb51d64374eb0216f7c22bfa47bc13c48418ba26b1b0。仓库没有 .codegraph/，按项目约定跳过 CodeGraph。
+
+| 验证项 | 本轮结果 | 可以说明什么 |
+| --- | --- | --- |
+| uv lock --check --offline、主环境 uv pip check | 均通过 | 锁文件与项目声明一致，已安装依赖无冲突 |
+| Python 3.12，正式离线套件并采集覆盖率 | 258 通过、9 个 live 未选择；13.35 秒 | 已有离线回归稳定 |
+| Python 3.13，uv 调用已有测试环境的明确解释器 | 258 通过、9 个 live 未选择；5.87 秒 | 当前代码在第二个支持版本通过同一回归；复用了上一轮环境，未重新 sync |
+| 正式真实客户端只读测试 | 9 通过；18.30 秒 | 行情、K 线、中文资料、股本、板块、公式列表及账户状态等既定读取场景可运行 |
+| 额外真实客户端读取 | 7 次均退出 0，但发现语义问题 | 退出成功并不等于字段齐全、结果可用 |
+| 真实 SDK 参数签名绑定 | 44 组命令通过 | 当前调用参数与本机 SDK 签名相容；返回数据使用替身，不代表 44 个真实接口端到端通过 |
+| 新增边界探针 | 26 例：24 例未满足预期，2 个对照通过 | 复现了下述契约缺口；不是 24 个独立缺陷，也不是正式 258 项测试退化 |
+| uv build、从生成的 sdist 重建 wheel | 均通过 | 两类发布包可构建，sdist 可作为 wheel 的构建输入 |
+| 两个全新环境安装 wheel，并在源码目录外 smoke | Python 3.12 / 3.13 均通过 | 模块确实来自 site-packages；版本、两个入口、技能资源、无测试打包、离线状态与下单预览通过 |
+
+覆盖率必须按同一口径理解：语句为 1293 / 1379 = **93.76%**，分支为 316 / 380 = **83.16%**；pytest 表格的 TOTAL 91% 是语句和分支合并值。Session 模块的合并覆盖率约 73%，初始化失败和清理路径仍是局部薄弱点。不同 Python 测试耗时含覆盖率采集等差异，不能直接据此判断版本性能。
+
+uv 的 --offline 约束依赖解析与下载，不会把真实 SDK 测试变成模拟测试。本轮读取由本机通达信客户端提供数据。
+
+**需要优先夯实的具体问题**
+
+1. **P0：交易状态未知仍会被降级为普通失败。**
+
+   当前适配器先把 -1 转成 SDK_DATA_ERROR，后面才执行交易未知状态判断。实际 SDK 的 order_stock 和 cancel_order_stock 在空原生响应、捕获异常、明确错误响应时都会返回 -1，无法仅凭该值证明委托没有被受理。原生函数返回空字节的故障注入已在下单、撤单两个路径复现此分类错误。
+
+   此外，交易领域层只显式处理 TimeoutError。替身记录调用已发生后抛出 ConnectionError，两个路径均没有转换为 TRADE_STATE_UNKNOWN。这个探针证明异常分类缺口，没有真实制造网络中断或真实下单。
+
+   应先区分“调用前被拒绝”“获得明确拒绝回执”“SDK 已受理”“发出后无法确认”，保留原始响应依据；不能把所有异常都改为未知，也不能把所有 -1 都当成明确拒绝。跨过提交边界而没有可靠回执时保守返回未知，要求查询核对，继续保持不自动重试提交。
+
+   代码证据：[适配器的判断顺序](E:/allmyrepos/cli-anything-tdx-tq/cli_anything/tdx_tq/core/sdk.py:19)、[提交异常处理](E:/allmyrepos/cli-anything-tdx-tq/cli_anything/tdx_tq/core/trading.py:38)、[撤单异常处理](E:/allmyrepos/cli-anything-tdx-tq/cli_anything/tdx_tq/core/trading.py:52)。本机供应商源码：order_stock 第 3750–3804 行，cancel_order_stock 第 3807–3849 行。
+
+   验收要求：调用前校验失败、明确拒绝、成功回执、空原生响应、响应丢失、超时、异常退出分别验证；故障后不得自动重发，输出必须准确区分失败与未知。
+
+2. **P0：查询失败与正常空结果混淆，影响交易核对的可靠性。**
+
+   真实 SDK 在查询资产失败时返回 {}，查询持仓或委托失败时返回 []；stock_account 在空响应、各种非零 ErrorId 和捕获异常时都可能返回 -1。本轮让原生调用返回空字节后，CLI 分别以退出码 0 输出空资产、空持仓、空委托，或“未登录”。财务请求底层返回 None 后被 SDK 转为 {}，CLI 同样正常结束。
+
+   这里需要修正上一轮的一个假设：**stock_account 的 -1 不只表示未登录。** 当前 core/sdk.py 中相应注释过于确定，trade account 的 logged_in=false 也不能证明客户端明确未登录。应提供 ready / logged_out / unavailable / unknown 等可区分状态，并依据实际协议确定含义。
+
+   正常账户确实可以没有持仓、没有委托，不能把所有 [] 判为错误。需要按接口建立成功类型、合法空结果、错误回执和缺数据的契约。在现有原生包装边界保留响应元数据，是值得优先验证的实现路线；仅分析已被 SDK 折叠的 Python 返回值无法还原证据。解析 stderr 文案也不适合作为可靠协议。
+
+   代码证据：[只有三个接口要求非空](E:/allmyrepos/cli-anything-tdx-tq/cli_anything/tdx_tq/core/sdk.py:15)、[账户状态推断](E:/allmyrepos/cli-anything-tdx-tq/cli_anything/tdx_tq/tdx_tq_cli.py:972)。本机 SDK：第 3609–3747 行；财务转换第 2014–2016 行。
+
+   验收要求：成功的空持仓和空委托仍可正常返回；空传输、协议错误、服务端错误不能伪装成这两种结果。用于未知委托核对的查询失败时，也不得推断“没有这笔委托”。
+
+3. **P1：客户端操作仍可能给出错误的成功确认，市场身份也会丢失。**
+
+   exec_to_tdx 在 SDK 中会把空响应或错误转换为 {}。本轮在替换 SetMsgToMain 后执行 client link，CLI 仍输出 success=true、raw={}、退出码 0。这是调用真实 SDK Python 实现的故障注入，没有实际操作 GUI。其他板块、预警、消息、刷新等写操作也应逐接口审计，不能因共用适配器就推断已全部修复。
+
+   另一个替身测试确认：000001.SH 和 000001.SZ 都生成 tdx://stock?code=000001，丢失市场后缀。已证实 URL 无法表达两者区别；本轮未实际观察 GUI 最终选择，应核对客户端支持的带市场协议后再确定正确编码。
+
+   代码证据：[链接构造及成功输出](E:/allmyrepos/cli-anything-tdx-tq/cli_anything/tdx_tq/tdx_tq_cli.py:893)、[板块成功封装示例](E:/allmyrepos/cli-anything-tdx-tq/cli_anything/tdx_tq/tdx_tq_cli.py:555)。本机 SDK：exec_to_tdx 第 3886–3912 行。
+
+   验收要求：所有有副作用的方法必须由本接口的有效确认回执决定 accepted / failed / unknown；市场身份不能在解析、URL、输出之间丢失。优先用替身和协议夹具验证，GUI 行为再用受控环境验收。
+
+4. **P1：除权除息日期确实丢失；批量及字段完整性也没有显式契约。**
+
+   本轮真实执行 market divid，查询 600519.SH 的 2024 年数据，得到两条记录，但 JSON 没有日期。SDK 将 Date 设置为 DataFrame 索引；CLI 提前执行 to_dict('records')，在进入公共序列化之前已经丢掉索引。公共序列化器虽然会保留有意义索引，这条路径绕过了它。
+
+   额外真实财务读取中，请求 FN1 得到的对象只有 announce_time=null、tag_time=null，没有 FN1；按报告期读取 FN1 得到 '--'。两者均退出 0，没有字段缺失说明。本轮不能据此确定是权限、缓存、可用数据还是接口支持造成，需要把数据可用性显式输出。MA 公式只请求 3 根 K 线时返回多组 [null]，可能是正常预热不足，不能直接认定计算错误。
+
+   批量探针另确认：请求两只股票、SDK 仅返回一只时，market get 正常输出，未声明缺失另一只。K 线对 NaT 时间输出字符串 'NaT'，大小写字段 Close / close 在统一小写时会覆盖。这两项为构造异常响应验证，应明确报错或提供缺失原因，避免静默处理。
+
+   代码证据：[除权除息的提前转换](E:/allmyrepos/cli-anything-tdx-tq/cli_anything/tdx_tq/tdx_tq_cli.py:207)、[公共索引保留逻辑](E:/allmyrepos/cli-anything-tdx-tq/cli_anything/tdx_tq/utils/output.py:13)、[K 线字段与日期处理](E:/allmyrepos/cli-anything-tdx-tq/cli_anything/tdx_tq/core/market.py:44)。本机 SDK 在第 1536–1539 行建立 Date 索引。
+
+   验收要求：逐接口验证证券标识、日期、字段、数值的转换前后保真；显式提供 missing_stocks / missing_fields / partial / warnings 或严格失败模式；数值缺失、数据源失败、公式预热不足分别表达。保持现有 JSON 兼容时，可先增加可选的版本化封装。
+
+5. **P1：部分 CLI 参数被接受后忽略，跨命令语义校验仍不一致。**
+
+   formula zb / xg 未提供 --stocks 时，仅调用 formula_zb(name,args) 或 formula_xg(name,args)，--period 和 --count 不参与计算。本轮分别传入 1m / 1 与 1d / 60，两个分支都退出成功，SDK 调用完全相同。应明确区分客户端当前上下文与指定股票批量计算；显式传入无效于当前模式的选项时拒绝或说明，不能沉默忽略。
+
+   探针还确认空白字段列表、报告期 mmdd=9999、日期 20260230、stock 类型缺少 target 等请求会到达 SDK。这里有些是明确无效值，有些需要确定默认语义；应在统一请求模型中定义，而不是依靠 SDK 最后返回空值。手工 stock gb --dates 接受 14 位时间及周末，而帮助声明交易日期；这是需要澄清并统一的 CLI 契约，本轮没有证明原生接口一定拒绝这些值。
+
+   许多命令在校验之前初始化 SDK，参数错误也可能先遇到连接错误。应完成纯参数解析与校验，再加载或初始化客户端。
+
+   代码证据：[公式两种模式](E:/allmyrepos/cli-anything-tdx-tq/cli_anything/tdx_tq/tdx_tq_cli.py:816)、[财务参数处理](E:/allmyrepos/cli-anything-tdx-tq/cli_anything/tdx_tq/tdx_tq_cli.py:650)、[交易统计目标处理](E:/allmyrepos/cli-anything-tdx-tq/cli_anything/tdx_tq/tdx_tq_cli.py:718)、[手工股本日期](E:/allmyrepos/cli-anything-tdx-tq/cli_anything/tdx_tq/tdx_tq_cli.py:430)。
+
+   验收要求：非法输入不触碰 SDK；所有公开选项必须产生明确效果或报出不适用；目标、周期、时间粒度、报告期和字段列表跨命令一致。涉及市场规则的约束应基于客户端能力，不能简单套用单一证券规则。
+
+6. **P1：初始化中途失败的清理不完整，生产请求没有统一截止时间。**
+
+   Session 在 initialize 成功后才设置 _initialized，close 又只在该标志为真时调用底层关闭。故障注入让后端先取得资源再抛异常，最终只有 acquired，没有 closed。这说明中途失败后的清理存在缺口，尚未证明本机正常运行发生过资源泄漏。
+
+   同时，SDK 财务和部分公式方法内置 timeout_ms=600000；CLI 没有整体 deadline。正式测试 subprocess 的 45 秒超时是测试保护，不能作为用户命令的运行保障。同步原生调用若阻塞，单纯给 Python 外层计时也无法可靠中断。
+
+   建议建立 initializing / ready / failed / closed 生命周期，记录初始化尝试并执行幂等清理。若要保证端到端截止时间，应评估隔离工作进程；读取超时可取消，交易在发出后被中断必须进入未知状态，和第 1 项一起设计。增加证券数、字段数、K 线数量及输出大小预算，防止无界请求占用进程。
+
+   代码证据：[初始化与关闭条件](E:/allmyrepos/cli-anything-tdx-tq/cli_anything/tdx_tq/core/session.py:40)。本机 SDK 的财务超时可见第 2002、2045、2088 行。验收应包括部分初始化失败、清理再次调用、主异常与清理异常同时发生、阻塞读取超时、交易中断后核对，以及超大请求在调用前被限制。
+
+7. **P2：配置加载的异常边界仍有一个小缺口。**
+
+   Config._load_from_file 在 try 外调用 Path.exists。探针让该 stat 操作抛 PermissionError，异常直接逃出构造器，load_error 没有记录；由于模块导入时创建全局 Config，这类失败可能早于统一 CLI 错误边界。上一轮实现的原子保存依然有效，本项集中在读取与诊断的可恢复性。
+
+   代码证据：[配置加载边界](E:/allmyrepos/cli-anything-tdx-tq/cli_anything/tdx_tq/core/config.py:28)。验收要求：不存在、拒绝访问、无法读取、JSON 损坏、结构无效分别可诊断，显式路径覆盖与修复命令仍可使用。
+
+8. **P2：测试需要增加业务语义断言和真实协议夹具。**
+
+   现有测试替身通过任意 *args / **kwargs 接收参数，很多成功用例只验证非空输出、合法 JSON。44 组真实签名检查本轮全部通过，因此当前没有证据说明参数签名不匹配；真正暴露的是替身返回值与供应商失败行为不同，以及输出字段没有被逐项断言。
+
+   建议保留覆盖率门槛，同时增加按接口的契约矩阵：成功非空、成功空集、明确错误、空原生响应、部分结果、类型变化、Unicode、索引、状态未知。对读取接口保存脱敏真实夹具；对交易使用厂商协议样本和仿真回执，配合发出前/发出后故障注入。对照用例必须证明修复没有把合法空集或合法回执全部拒绝。把本轮确认的问题转为正式回归，把需决策的参数规则先形成明确规范。
+
+   代码证据：[替身及返回值表](E:/allmyrepos/cli-anything-tdx-tq/cli_anything/tdx_tq/tests/test_contracts.py:45)、[成功用例断言](E:/allmyrepos/cli-anything-tdx-tq/cli_anything/tdx_tq/tests/test_contracts.py:105)。本轮临时探针的 24 次失败不能直接当作发布门槛数量，更不应只通过增加类似成功用例继续拉高覆盖率。
+
+9. **P2：发布链已可用，构建与供应商依赖仍需更可复现。**
+
+   uv.lock 锁定测试依赖，但构建系统声明 setuptools>=77 和 wheel，没有把隔离构建工具完全固定；CI 的 uv pip install wheel 也会在锁文件以外重新解析运行依赖。本轮新环境安装实际出现 Python 3.12 使用 numpy 2.5.4、Python 3.13 使用 2.5.3，而正式测试环境与 uv.lock 为 2.5.4。两套 smoke 均通过，说明此次兼容，不能说明发布验证使用了完全相同依赖。
+
+   建议锁定构建约束，发布 smoke 使用由锁文件导出的依赖约束；另设有意测试的最低/当前依赖矩阵，避免把浮动解析当作兼容性矩阵。记录 SDK / DLL 路径、架构、版本或指纹和已验证能力，适配补丁按已知 SDK 版本约束，遇到未知形态给出诊断。
+
+   代码证据：[构建声明](E:/allmyrepos/cli-anything-tdx-tq/pyproject.toml:1)、[CI 的构建与安装](E:/allmyrepos/cli-anything-tdx-tq/.github/workflows/ci.yml:31)。本轮验证了本地工作流相关步骤，没有触发或验证远端 CI；新增文件和当前加固改动仍未提交。
+
+10. **P2：性能有实测优化空间，重构应围绕契约逐步进行。**
+
+    用相同合成行情数据重复 3 次，不含 SDK 请求和终端渲染，测得下表。内存数字来自另一次 tracemalloc 采样，表示 Python 采样峰值，不是进程 RSS；时间采用未开启 tracemalloc 的中位数。
+
+    | 数据规模 | K 线转换中位耗时 | JSON 中位耗时 | JSON 大小 | Python 采样峰值 |
+    | --- | --- | --- | --- | --- |
+    | 5 只 × 100 根 × 5 字段 | 0.040 秒 | 0.004 秒 | 73,107 字节 | 1.26 MiB |
+    | 20 只 × 1,000 根 × 5 字段 | 1.741 秒 | 0.191 秒 | 2,920,422 字节 | 35.33 MiB |
+
+    当前转换逐证券、逐日期、逐字段执行 df.loc，合并日期使用列表成员判断；随后又复制归一化对象并生成完整 JSON 字符串。应先设请求上限与基准，再评估批量重排、集合索引、紧凑 JSON、NDJSON 或分批导出。不能由这两组微基准外推真实接口 P95，也不宜在数据契约确定之前优先做并发交易或大幅性能重写。
+
+    CLI 仍约 1,185 行、836 条可执行语句。可以按行情、财务、公式、客户端、交易逐步提取请求模型和服务层，使 Click 负责参数与展示，SDK 适配负责协议，领域层负责状态与完整性规则；无需立即引入大型框架或整仓重写。
+
+**确定的推进顺序与交付条件**
+
+| 批次 | 优先方向 | 明确交付物 | 完成判据 |
+| --- | --- | --- | --- |
+| 第 1 批，P0 | SDK 结果契约与交易未知状态 | 接口契约表、保留原始回执依据的适配层、统一失败分类、对应正式回归 | 空传输不等于空持仓；不确定委托不报告明确失败或成功；合法空结果仍可返回 |
+| 第 2 批，P1 | 数据保真与命令语义 | 修复除权日期、请求/结果对账、可选严格模式、参数模型、公式模式与市场标识规范 | 证券、日期、字段可核对；无静默丢失或忽略参数；无效请求不初始化 SDK |
+| 第 3 批，P1 | 生命周期与执行边界 | 部分初始化清理、整体 deadline 方案、资源限额、清晰中断状态 | 阻塞和中途失败可诊断、可清理；读取取消与交易未知状态不会混淆 |
+| 第 4 批，P2 | 可复现发布、诊断与性能 | 构建约束、SDK 能力/版本矩阵、语义夹具、数据来源元信息、基准与按需优化 | 测试与发布依赖可追溯；兼容性差异明确；性能提升保持数据与输出契约 |
+
+如果下一步目标包括无人值守交易，还应在前 3 批基础上补充本地操作日志、操作关联 ID、账户级并发约束和委托核对流程。SDK 当前下单签名没有提供客户端幂等键；本地 request_id 能用于审计与防重复触发，不能单独保证服务端“恰好一次”。这属于下一阶段运行能力建设，不是本轮已经验证存在或完成的机制。
+
+建议将下一轮实现范围定为 **第 1 批完整闭环，同时修复已真实复现的除权日期丢失**。这两项证据明确、收益直接，也能为后续批量完整性和超时处理提供可靠基础。
+
+**复现与材料**
+
+主要命令在仓库根目录运行；本轮额外指定了工作区内 uv 缓存和 pytest 临时目录，完整参数见各日志。
+
+    uv run --locked --extra test --offline pytest -m "not live" --cov=cli_anything/tdx_tq --cov-report=json:temp/assessment-round2-20261021/coverage.json
+    uv run --locked --extra test --offline pytest --live -m live -q
+    uv run --locked --extra test --offline python temp/assessment-round2-20261021/live_extended.py
+    uv run --locked --extra test --offline python temp/assessment-round2-20261021/sdk_binding.py
+    uv run --locked --extra test --offline pytest temp/assessment-round2-20261021/test_round2_boundaries.py -q --tb=short
+    uv build --offline --out-dir temp/assessment-round2-20261021/dist
+
+最后一个 pytest 探针命令当前应得到 24 failed、2 passed，用于重现尚未修复的缺口。它在 temp/ 下，不包含于正式默认 testpaths。Python 3.13 的本轮调用为 uv run --no-sync 后跟 temp/implementation-20261021/env313/Scripts/python.exe -m pytest，版本已单独核对为 3.13.15。
+
+- [机器可读实测汇总](E:/allmyrepos/cli-anything-tdx-tq/temp/assessment-round2-20261021/assessment-facts.json)
+- [覆盖率原始数据](E:/allmyrepos/cli-anything-tdx-tq/temp/assessment-round2-20261021/coverage.json)
+- [正式离线测试日志](E:/allmyrepos/cli-anything-tdx-tq/temp/assessment-round2-20261021/baseline.log)；[Python 3.13 日志](E:/allmyrepos/cli-anything-tdx-tq/temp/assessment-round2-20261021/baseline313.log)
+- [真实客户端正式测试日志](E:/allmyrepos/cli-anything-tdx-tq/temp/assessment-round2-20261021/live.log)；[7 次额外读取原始输出](E:/allmyrepos/cli-anything-tdx-tq/temp/assessment-round2-20261021/live-extended.json)
+- [真实签名绑定输出](E:/allmyrepos/cli-anything-tdx-tq/temp/assessment-round2-20261021/sdk-binding.json)
+- [边界探针源码](E:/allmyrepos/cli-anything-tdx-tq/temp/assessment-round2-20261021/test_round2_boundaries.py)；[最终结果日志](E:/allmyrepos/cli-anything-tdx-tq/temp/assessment-round2-20261021/boundary-final.log)
+- [构建及锁检查](E:/allmyrepos/cli-anything-tdx-tq/temp/assessment-round2-20261021/package-and-lock-checks.json)；[sdist 重建日志](E:/allmyrepos/cli-anything-tdx-tq/temp/assessment-round2-20261021/sdist-rebuild.log)
+- [性能计时日志](E:/allmyrepos/cli-anything-tdx-tq/temp/assessment-round2-20261021/performance-timing.log)；[内存采样日志](E:/allmyrepos/cli-anything-tdx-tq/temp/assessment-round2-20261021/performance.log)
+
+真实验证仅代表本机 SDK、客户端状态和抽样证券，不覆盖全部权限、全部市场、供应商其他版本、真实下单或撤单最终状态。本轮以明确的真实读取问题、原生边界故障注入和可定位源码为依据区分结论与待验证方向。

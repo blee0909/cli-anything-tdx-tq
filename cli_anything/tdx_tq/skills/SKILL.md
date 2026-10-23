@@ -1,7 +1,7 @@
 ---
 name: tdx-tq-sdk
 description: 通达信 TQ SDK CLI - 通达信量化接口命令行工具
-version: 1.0.0
+version: 1.1.0
 ---
 
 # TDX TQ SDK CLI Skill
@@ -12,12 +12,12 @@ version: 1.0.0
 
 1. **通达信客户端**：必须已启动并登录
 2. **通达信安装**：默认路径 `D:\tdx`
-3. **Python 环境**：Python 3.8+
+3. **Python 环境**：Windows Python 3.12/3.13
 
 ## 安装
 
 ```bash
-pip install -e .
+uv sync --locked
 ```
 
 ## 命令组
@@ -34,8 +34,10 @@ cli-anything-tdx-tq market get -s <股票代码> [选项]
 
 **参数：**
 - `-s, --stocks`: 股票代码列表，逗号分隔（必填）
-- `-p, --period`: 周期，可选 tick/1m/5m/1d/1w/1mon（默认：1d）
-- `-c, --count`: 获取数量（默认：60）
+- `-p, --period`: 周期，可选 1m/5m/15m/30m/1h/1d/1w/1mon（默认：1d）
+- `-c, --count`: 尾部数量（无 --start 时默认 60，与 --start 互斥）
+- `--start/--end`: 日期区间；八位 K 线结束日期包含整日，区间不受默认 60 条截断
+- `--allow-partial`: 显式接受部分数据，返回带缺失说明的版本 1 JSON 信封
 - `-d, --dividend`: 复权类型，可选 none/front/back（默认：front）
 - `-o, --output`: 输出文件路径
 - `--json`: 以 JSON 格式输出
@@ -380,7 +382,7 @@ cli-anything-tdx-tq financial get -s 600487.SH,000001.SZ,600519.SH -f FN1,FN6 --
 1. **前置条件**：必须先启动并登录通达信客户端
 2. **股票代码格式**：6 位数字 + 市场后缀，如 `600487.SH`
 3. **时间格式**：YYYYMMDD，如 `20240101`
-4. **数据周期**：tick, 1m, 5m, 1d, 1w, 1mon 等
+4. **数据周期**：1m, 5m, 15m, 30m, 1h, 1d, 1w, 1mon 等
 5. **复权类型**：none(不复权), front(前复权), back(后复权)
 
 ## 故障排除
@@ -396,6 +398,16 @@ cli-anything-tdx-tq config show
 
 重新安装：
 ```bash
-cd D:/TDX-SKILL/tdx-tq-sdk/cli_agent
-pip install -e .
+uv sync --locked
 ```
+
+
+## 自动化执行契约
+
+帮助、状态和订单预览不需要 SDK。--json 失败输出包含 success=false、error_code、error_type 和 retryable，需同时检查非零退出码。嵌套数据保持结构，NaN/Inf 转为 null；分钟 K 线保留完整时间。60m 映射为 1h，当前不支持 tick。
+
+订单预览不查询账户；account_id 可为 null。--confirm 才提交，限价须大于零。status=accepted 仅代表 SDK 受理；TRADE_STATE_UNKNOWN 需要先查询委托核对，不自动重复提交。init/close 只作用于当前进程。
+
+账户查询 state=unavailable、logged_in=false 需要明确的原生无可用账户回执；ACCOUNT_STATE_UNKNOWN 不表示已退出登录。客户端、板块、缓存操作缺少确认回执时返回 OPERATION_STATE_UNKNOWN，不应直接重复执行。交易的空响应、传输异常或畸形回执按 TRADE_STATE_UNKNOWN 先核对委托。除权除息 JSON 保留 SDK 的 Date 索引。
+
+market get、financial get、financial by-date 默认对不完整数据返回 DATA_INCOMPLETE、非零退出码；details 列出缺失证券/字段/值与逐项错误，data 保留可用部分。--allow-partial 的成功结果始终为 schema_version=1、success、partial、data 及完整性说明；全部无可用数据仍失败。请保存信封中的缺失说明，不要只按证券键存在判断数据完整。严格导出在验证前不会替换文件；部分导出的数据文件仅保存有效记录，控制台信封保存缺失说明。K 线关闭自动前值填充，财务默认 RangeIndex 不输出人为 index 字段，有意义索引仍保留。
