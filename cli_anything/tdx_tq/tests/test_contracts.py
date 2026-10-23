@@ -17,7 +17,7 @@ COMMANDS = [
     ['market','zdt','-s','600519.SH'],
     ['market','exday','-s','600519.SH'],
     ['market','pv','-s','600519.SH'],
-    ['market','refresh'], ['market','refresh','-s','600519.SH','-p','60m'],
+    ['market','refresh'], ['market','refresh','-s','600519.SH','-p','5m'],
     ['stock','info','-s','600519.SH'], ['stock','more','-s','600519.SH'],
     ['stock','list'], ['stock','calendar'], ['stock','search','-k','茅台'],
     ['stock','gb','-s','600519.SH','-c','2'], ['stock','gb','-s','600519.SH','-d','20261020,20261019','-c','2'],
@@ -186,3 +186,45 @@ def test_config_set_isolated_and_json(tmp_path):
     data=json.loads(result.stdout)
     assert json.loads((tmp_path/'config.json').read_text())['tdx_path']=='D:/new-tdx'
     assert data['success'] is True
+
+
+@pytest.mark.parametrize('period', ['1h', '60m', '1w', '1mon', '30m'])
+def test_refresh_rejects_periods_the_sdk_cannot_cache(period, fake_session):
+    """refresh_kline 只支持 1m/5m/1d；其余周期必须本地拒绝且不触达 SDK。"""
+    result = CliRunner().invoke(cli.cli, ['market','refresh','-s','600519.SH','-p',period,'--json'])
+    assert result.exit_code == 2, result.output
+    payload = json.loads(result.stdout)
+    assert payload['error_code'] == 'INVALID_PARAMETER'
+    assert not fake_session.raw.calls
+
+
+def test_refresh_period_requires_explicit_stocks(fake_session):
+    result = CliRunner().invoke(cli.cli, ['market','refresh','-p','5m','--json'])
+    assert result.exit_code == 2, result.output
+    assert json.loads(result.stdout)['error_code'] == 'INVALID_PARAMETER'
+    assert not fake_session.raw.calls
+
+
+@pytest.mark.parametrize('sector,block_type,list_type', [
+    ('半导体', 0, 0), ('ZXG', 1, 0), ('CSBK', 1, 1), ('880201.SH', 0, 1),
+])
+def test_sector_stocks_forwards_block_type(sector, block_type, list_type, fake_session):
+    args = ['sector','stocks','-s',sector,'--block-type',str(block_type),'--type',str(list_type),'--json']
+    result = CliRunner().invoke(cli.cli, args)
+    assert result.exit_code == 0, result.output
+    name, _, request = fake_session.raw.calls[-1]
+    assert name == 'get_stock_list_in_sector'
+    assert request == dict(block_code=sector, block_type=block_type, list_type=list_type)
+
+
+def test_sector_stocks_defaults_to_sector_index(fake_session):
+    result = CliRunner().invoke(cli.cli, ['sector','stocks','-s','半导体','--json'])
+    assert result.exit_code == 0, result.output
+    assert fake_session.raw.calls[-1][2] == dict(block_code='半导体', block_type=0, list_type=0)
+
+
+def test_sector_stocks_rejects_empty_sector(fake_session):
+    result = CliRunner().invoke(cli.cli, ['sector','stocks','-s','   ','--json'])
+    assert result.exit_code == 2, result.output
+    assert json.loads(result.stdout)['error_code'] == 'INVALID_PARAMETER'
+    assert not fake_session.raw.calls

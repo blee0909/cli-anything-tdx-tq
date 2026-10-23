@@ -16,7 +16,8 @@ from pathlib import Path
 
 from .core.session import session, TdxError
 from .core.errors import TdxDataError, TdxParamError
-from .core.market import reformat_kline_data as _reformat_kline_data, normalize_period, stock_code, validate_dates, MarketRequest
+from .core.market import (reformat_kline_data as _reformat_kline_data, normalize_period,
+                          normalize_refresh_period, stock_code, validate_dates, MarketRequest)
 from .core.quality import parse_fields, read_batch, assess_market, assess_financial
 from .core.trading import OrderRequest, submit_order, cancel_order
 from .core.sdk import validate_result
@@ -286,10 +287,10 @@ def market_pv(ctx, stocks: str, as_json: bool):
 
 
 @market.command('refresh')
-@click.option('--market', '-m', default='AG', help='市场标识 (AG=A股, HK=港股, US=美股, QH=期货, ZS=指数)')
+@click.option('--market', '-m', default='AG', help='市场标识 (AG=A股, HK=港股, US=美股, QH=期货, ZS=指数)；指定 --stocks 时不生效')
 @click.option('--force', is_flag=True, help='是否强制刷新全部缓存')
 @click.option('--stocks', '-s', help='刷新指定股票的历史K线缓存，逗号分隔')
-@click.option('--period', '-p', default='1d', help='K线周期 (1m, 5m, 1d)')
+@click.option('--period', '-p', default='1d', help='K线周期 (仅 1m, 5m, 1d；刷新接口只支持这三个周期)')
 @click.option('--json', 'as_json', is_flag=True, help='以 JSON 格式输出')
 @click.pass_context
 def market_refresh(ctx, market: str, force: bool, stocks: Optional[str], period: str, as_json: bool):
@@ -297,7 +298,9 @@ def market_refresh(ctx, market: str, force: bool, stocks: Optional[str], period:
     try:
         stock_list = _parse_stock_list(stocks) if stocks else None
         if stocks:
-            period = normalize_period(period)
+            period = normalize_refresh_period(period)
+        elif normalize_period(period) != '1d':
+            raise TdxParamError("--period 仅在指定 --stocks 刷新历史K线缓存时生效")
         session.ensure_initialized()
         result = (session.tdx.refresh_kline(stock_list=stock_list, period=period) if stocks
                   else session.tdx.refresh_cache(market=market, force=force))
@@ -516,20 +519,29 @@ def sector_list(ctx, list_type: str, as_json: bool):
 
 
 @sector.command('stocks')
-@click.option('--sector', '-s', required=True, help='板块代码或名称 (例: 880201.SH 或 半导体)')
-@click.option('--type', '-t', 'list_type', default=0, type=int, help='板块分类')
+@click.option('--sector', '-s', required=True,
+              help='板块代码、板块名称或自定义板块简称 (例: 880201.SH / 半导体 / ZXG)')
+@click.option('--block-type', '-b', type=click.Choice(['0', '1']), default='0',
+              help='板块类型 (0=板块指数代码或名称，1=自定义板块简称，如 ZXG=自选股、TJG=临时条件股)')
+@click.option('--type', '-t', 'list_type', default=0, type=int,
+              help='返回内容 (0=仅代码，1=代码+名称)')
 @click.option('--json', 'as_json', is_flag=True, help='以 JSON 格式输出')
 @click.pass_context
-def sector_stocks(ctx, sector: str, list_type: int, as_json: bool):
-    """获取指定板块的成分股列表"""
+def sector_stocks(ctx, sector: str, block_type: str, list_type: int, as_json: bool):
+    """获取指定板块的成分股列表。"""
     try:
+        block = sector.strip()
+        if not block:
+            raise TdxParamError("板块代码或名称不得为空")
         session.ensure_initialized()
-        stocks = session.tdx.get_stock_list_in_sector(block_code=sector.strip(), list_type=list_type)
+        stocks = session.tdx.get_stock_list_in_sector(
+            block_code=block, block_type=int(block_type), list_type=list_type)
 
         if as_json:
             click.echo(to_json(stocks, ensure_ascii=False, indent=2))
         else:
-            click.echo(f"=== 板块: {sector} (成分股 {len(stocks)} 只) ===")
+            label = '自定义板块' if int(block_type) == 1 else '板块'
+            click.echo(f"=== {label}: {block} (成分股 {len(stocks)} 只) ===")
             for i, stk in enumerate(stocks, 1):
                 click.echo(f"{i}. {stk}")
     except Exception as e:

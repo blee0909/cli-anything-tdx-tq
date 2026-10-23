@@ -154,17 +154,23 @@ cli-anything-tdx-tq sector list -t 1
 #### sector stocks - 获取板块成分股
 
 ```bash
-cli-anything-tdx-tq sector stocks -s <板块名称> [选项]
+cli-anything-tdx-tq sector stocks -s <板块代码/名称/自定义板块简称> [选项]
 ```
 
 **参数：**
-- `-s, --sector`: 板块名称（必填）
+- `-s, --sector`: 板块代码、板块名称或自定义板块简称（必填）
+- `-b, --block-type`: 板块类型，`0`=板块指数代码或名称（默认），`1`=自定义板块简称（如 `ZXG` 自选股、`TJG` 临时条件股）
+- `-t, --type`: 返回内容，`0`=仅代码（默认），`1`=代码+名称
 - `--json`: 以 JSON 格式输出
 
 **示例：**
 ```bash
 cli-anything-tdx-tq sector stocks -s 半导体
+cli-anything-tdx-tq sector stocks -s 880201.SH -t 1
 cli-anything-tdx-tq sector stocks -s 人工智能 --json
+# 自选股 / 自定义板块必须指定 -b 1
+cli-anything-tdx-tq sector stocks -s ZXG -b 1
+cli-anything-tdx-tq sector stocks -s MYBK -b 1 -t 1
 ```
 
 ### financial - 财务数据

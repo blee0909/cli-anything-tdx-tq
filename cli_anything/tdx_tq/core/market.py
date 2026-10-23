@@ -11,6 +11,8 @@ from .errors import TdxDataError, TdxParamError
 from .sdk import validate_result
 
 SUPPORTED_PERIODS = ('1m', '5m', '10m', '15m', '30m', '1h', '1d', '1w', '1mon', '45d', '1q', '1y')
+# refresh_kline 只缓存这三个周期的历史K线；其余周期会被 SDK 拒绝并直接关闭连接。
+REFRESH_PERIODS = ('1m', '5m', '1d')
 
 
 def normalize_period(value: str) -> str:
@@ -18,6 +20,15 @@ def normalize_period(value: str) -> str:
     if value not in SUPPORTED_PERIODS:
         raise TdxParamError(f"不支持的周期 {value}; 可用周期: {', '.join(SUPPORTED_PERIODS)} (60m=1h)")
     return value
+
+
+def normalize_refresh_period(value: str) -> str:
+    """刷新缓存前先在本地拒绝 SDK 明确不支持的周期，避免断连。"""
+    period = normalize_period(value)
+    if period not in REFRESH_PERIODS:
+        raise TdxParamError(f"刷新K线缓存不支持周期 {period}; 可用周期: "
+                            f"{', '.join(REFRESH_PERIODS)}（刷新接口只缓存这三个周期的历史K线）")
+    return period
 
 
 def stock_code(value: str) -> str:
