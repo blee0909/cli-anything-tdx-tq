@@ -61,6 +61,13 @@ htmlcov/
 *.swo
 *~
 
+# Local AI agent workflows and instructions
+/.agent/
+/.agents/
+/AGENT.md
+/AGENTS.md
+/CLAUDE.md
+
 # Operating systems
 .DS_Store
 Thumbs.db

@@ -4,12 +4,14 @@ import sys
 
 import click
 
-from ..core.errors import TdxError
+from ..core.errors import TdxError, TdxParamError
 from .output import to_json
 
 
 def error_payload(error: Exception) -> dict:
-    parameter = isinstance(error, (click.UsageError, ValueError))
+    parameter = isinstance(error, (click.UsageError, TdxParamError)) or (
+        isinstance(error, ValueError) and not isinstance(error, TdxError)
+    )
     payload = {'success': False, 'error': str(error), 'error_type': type(error).__name__,
                'error_code': getattr(error, 'code', 'INVALID_PARAMETER' if parameter else 'OPERATION_FAILED'),
                'retryable': bool(getattr(error, 'retryable', False))}
@@ -29,7 +31,10 @@ def emit_error(error: Exception, as_json: bool, prefix: str = '操作失败') ->
 
 def handle_error(ctx, error: Exception, as_json: bool = False, prefix: str = '操作失败'):
     emit_error(error, as_json, prefix)
-    ctx.exit(2 if isinstance(error, (ValueError, click.UsageError)) else 1)
+    is_param = isinstance(error, (click.UsageError, TdxParamError)) or (
+        isinstance(error, ValueError) and not isinstance(error, TdxError)
+    )
+    ctx.exit(2 if is_param else 1)
 
 
 class JsonGroup(click.Group):
@@ -45,7 +50,7 @@ class JsonGroup(click.Group):
             code = exc.exit_code
         except (TdxError, OSError) as exc:
             emit_error(exc, '--json' in args)
-            code = 1
+            code = 2 if isinstance(exc, TdxParamError) else 1
         except click.Abort:
             emit_error(RuntimeError('操作已中止'), '--json' in args)
             code = 130

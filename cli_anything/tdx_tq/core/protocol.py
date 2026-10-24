@@ -17,7 +17,7 @@ TRADE_METHODS = {'order_stock', 'cancel_order_stock'}
 ACK_METHODS = {
     'exec_to_tdx', 'send_message', 'send_warn', 'send_user_block',
     'create_sector', 'delete_sector', 'rename_sector', 'clear_sector',
-    'refresh_cache', 'refresh_kline',
+    'refresh_cache', 'refresh_kline', 'download_file',
 }
 SIDE_EFFECT_ENDPOINTS = {
     'order_stock': ('GetOrderStr', '4'), 'cancel_order_stock': ('GetOrderStr', '5'),
@@ -26,10 +26,11 @@ SIDE_EFFECT_ENDPOINTS = {
     'create_sector': ('SetMsgToMain', '11'), 'delete_sector': ('SetMsgToMain', '12'),
     'rename_sector': ('SetMsgToMain', '13'), 'clear_sector': ('SetMsgToMain', '14'),
     'refresh_cache': ('GetTdxDataStr', '16'), 'refresh_kline': ('GetTdxDataStr', '17'),
+    'download_file': ('GetTdxDataStr', '18'),
 }
 NATIVE_FUNCTIONS = ('GetTdxDataStr', 'GetProDataInStr', 'TdxFuncMain',
                     'GetOrderStr', 'SetMsgToMain')
-BATCH_READ_METHODS = {'get_market_data', 'get_financial_data', 'get_financial_data_by_date'}
+BATCH_READ_METHODS = {'get_market_data', 'get_financial_data', 'get_financial_data_by_date', 'get_gp_one_data'}
 ACTIVE_TRACE = ContextVar('tdx_rpc_trace', default=None)
 
 

@@ -23,11 +23,17 @@ READ_TYPES = {
     'query_stock_asset': dict, 'query_stock_positions': list, 'query_stock_orders': list,
     'get_financial_data': dict, 'get_financial_data_by_date': dict,
     'get_gpjy_value': dict, 'get_bkjy_value': dict, 'get_scjy_value': dict,
+    'get_scjy_value_by_date': dict, 'get_gpjy_value_by_date': dict, 'get_bkjy_value_by_date': dict,
+    'get_relation': list, 'get_ipo_info': list, 'get_trackzs_etf_info': list,
+    'get_gb_info_by_date': list, 'get_gp_one_data': dict,
+    'formula_exp': dict, 'formula_process_mul_exp': dict,
 }
 
 
 def validate_result(result, method: str, *, require_data: bool = False, trade: bool = False,
                     account_unavailable: bool = False):
+    if method in ('get_scjy_value', 'get_scjy_value_by_date', 'get_gpjy_value', 'get_gpjy_value_by_date', 'get_bkjy_value', 'get_bkjy_value_by_date') and result is None:
+        result = {}
     if method == 'stock_account':
         if isinstance(result, numbers.Integral) and not isinstance(result, bool):
             if result >= 0 or (result == -1 and account_unavailable):
@@ -123,18 +129,75 @@ def patch_module(mod) -> None:
             return obj
         parse_reply._rpc_evidence_patched = True
         mod._json_loads_with_errorid_guard = parse_reply
+    # Patch missing multi-asset suffix mappings (BUG-004)
+    extra_markets = {'QHZ': '42', 'SSI': '68', 'SGE': '46', 'UZ': '70'}
+    suffixes = getattr(mod, 'SUPPORTED_STOCK_SUFFIXES', None)
+    if isinstance(suffixes, set):
+        suffixes.update(extra_markets.keys())
+    market_map = getattr(mod, 'MARKET_NUM_BY_SUFFIX', None)
+    if isinstance(market_map, dict):
+        market_map.update(extra_markets)
+    market_nums = getattr(mod, 'SUPPORTED_MARKET_NUMBERS', None)
+    if isinstance(market_nums, set):
+        market_nums.update(extra_markets.values())
+
     tq = getattr(mod, 'tq', None)
-    if isinstance(tq, type) and not getattr(tq, '_kzz_patched', False):
-        original = getattr(tq, 'get_kzz_info', None)
-        if original is not None:
-            def safe_get_kzz_info(cls, stock_code='', field_list=None):
-                try:
-                    return original(stock_code=stock_code, field_list=field_list or [])
-                except IndexError:
-                    logger.debug('SDK get_kzz_info empty result', exc_info=True)
-                    return {}
-            tq.get_kzz_info = classmethod(safe_get_kzz_info)
-        tq._kzz_patched = True
+    if isinstance(tq, type):
+        if not getattr(tq, '_kzz_patched', False):
+            original = getattr(tq, 'get_kzz_info', None)
+            if original is not None:
+                def safe_get_kzz_info(cls, stock_code='', field_list=None):
+                    try:
+                        return original(stock_code=stock_code, field_list=field_list or [])
+                    except IndexError:
+                        logger.debug('SDK get_kzz_info empty result', exc_info=True)
+                        return {}
+                tq.get_kzz_info = classmethod(safe_get_kzz_info)
+            tq._kzz_patched = True
+
+        if not getattr(tq, '_kline_zero_date_patched', False):
+            orig_kline_format = getattr(tq, '_fast_format_kline_data', None)
+            if orig_kline_format is not None:
+                def safe_fast_format_kline_data(cls, all_data, stock_list, fill_data):
+                    if isinstance(all_data, dict):
+                        cleaned_all_data = {}
+                        for s_code, s_data in all_data.items():
+                            if not isinstance(s_data, dict):
+                                cleaned_all_data[s_code] = s_data
+                                continue
+                            dates = s_data.get('Date') or []
+                            valid_indices = [
+                                i for i, d in enumerate(dates)
+                                if str(d).strip() not in ('0', '00000000', '0000', '', 'None')
+                            ]
+                            if not valid_indices:
+                                cleaned_all_data[s_code] = {}
+                            elif len(valid_indices) == len(dates):
+                                cleaned_all_data[s_code] = s_data
+                            else:
+                                cleaned_s_data = {}
+                                for k, v in s_data.items():
+                                    if isinstance(v, list) and len(v) == len(dates):
+                                        cleaned_s_data[k] = [v[idx] for idx in valid_indices]
+                                    else:
+                                        cleaned_s_data[k] = v
+                                cleaned_all_data[s_code] = cleaned_s_data
+                        all_data = cleaned_all_data
+                    return orig_kline_format(all_data, stock_list, fill_data)
+                tq._fast_format_kline_data = classmethod(safe_fast_format_kline_data)
+            tq._kline_zero_date_patched = True
+
+        if not getattr(tq, '_scjy_patched', False):
+            for scjy_name in ('get_scjy_value', 'get_scjy_value_by_date'):
+                orig_scjy = getattr(tq, scjy_name, None)
+                if orig_scjy is not None:
+                    def make_safe_scjy(fn):
+                        def safe_scjy(cls, *args, **kwargs):
+                            val = fn(*args, **kwargs)
+                            return {} if val is None else val
+                        return classmethod(safe_scjy)
+                    setattr(tq, scjy_name, make_safe_scjy(orig_scjy))
+            tq._scjy_patched = True
 
 
 def load_sdk(tdx_path: str):
@@ -242,6 +305,8 @@ class TqAdapter:
                 raise TdxReadTimeoutError(f"{name} 请求超时") from exc
             if isinstance(exc, SystemExit):
                 raise TdxDataError(f"SDK 终止了 {name}") from exc
+            if isinstance(exc, ValueError):
+                raise TdxDataError(f"{name} 运行时数据解析失败: {exc}") from exc
             raise
         finally:
             ACTIVE_TRACE.reset(token)

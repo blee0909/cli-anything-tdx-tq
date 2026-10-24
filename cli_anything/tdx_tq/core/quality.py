@@ -72,17 +72,19 @@ def _batch(data, stocks, metadata):
                        unexpected=[str(key) for key in data if key not in stocks])
 
 
-def assess_market(data, stocks, metadata=None):
+def assess_market(data, stocks, metadata=None, fields=None):
     result = _batch(data, stocks, metadata)
+    req_fields = [f.lower() for f in fields] if fields else ['close']
     for stock in stocks:
         bars = data.get(stock, [])
-        valid = [bar for bar in bars if available(bar.get('close'))]
+        valid = [bar for bar in bars if any(available(bar.get(f)) for f in req_fields)]
         result.record_counts[stock] = len(valid)
         if len(valid) != len(bars):
             result.dropped_records[stock] = len(bars) - len(valid)
-        if not valid:
-            result.missing_fields[stock] = ['close']
-        else:
+        missing = [f for f in req_fields if not any(available(bar.get(f)) for bar in bars)]
+        if missing:
+            result.missing_fields[stock] = missing
+        if valid:
             result.data[stock] = valid
     return result
 
@@ -154,3 +156,76 @@ def assess_financial(data, stocks, fields, metadata=None):
                          if isinstance(column, list) else column for key, column in clean.items()}
             result.data[stock] = clean
     return result
+
+
+def is_trading_value_available(value) -> bool:
+    if value is None or value is pd.NA or value is pd.NaT:
+        return False
+    if isinstance(value, str):
+        return value.strip() not in ('', '--')
+    if isinstance(value, numbers.Real):
+        return math.isfinite(value)
+    if isinstance(value, (list, tuple)):
+        return any(is_trading_value_available(v) for v in value)
+    if isinstance(value, dict):
+        return any(is_trading_value_available(v) for v in value.values())
+    if isinstance(value, pd.DataFrame):
+        return not value.empty and bool(value.notna().any().any())
+    return True
+
+
+def assess_trading(data, target_type: str, targets: list[str], fields: list[str],
+                   allow_partial: bool = False):
+    """Assess trading features completeness for stock, sector or market.
+
+    Rejects silently empty dicts, {stock: None}, or all '--' placeholder payloads.
+    """
+    if target_type in ('stock', 'sector'):
+        if not isinstance(data, dict):
+            raise TdxDataError('交易统计响应必须为字段字典')
+        if not data:
+            raise TdxIncompleteDataError(
+                '没有可用的交易统计数据，请检查代码、日期和缓存',
+                details={'partial': True, 'requested_targets': targets, 'available_targets': [], 'missing_targets': targets},
+                data={}
+            )
+        available_targets = [t for t in targets if t in data and is_trading_value_available(data[t])]
+        if not available_targets and not any(t in data for t in targets):
+            if is_trading_value_available(data):
+                available_targets = list(targets)
+        missing_targets = [t for t in targets if t not in available_targets]
+        if not available_targets:
+            raise TdxIncompleteDataError(
+                '交易统计数据不可用或未包含有效记录；请检查代码、日期与缓存',
+                details={'partial': True, 'requested_targets': targets, 'available_targets': [], 'missing_targets': targets},
+                data={}
+            )
+        if missing_targets and not allow_partial:
+            raise TdxIncompleteDataError(
+                '请求的数据不完整；有可用数据时可使用 --allow-partial 查看部分结果',
+                details={'partial': True, 'requested_targets': targets, 'available_targets': available_targets, 'missing_targets': missing_targets},
+                data={t: data[t] for t in available_targets if t in data}
+            )
+        if allow_partial and missing_targets:
+            return {
+                'schema_version': 1,
+                'success': True,
+                'partial': True,
+                'requested_targets': targets,
+                'available_targets': available_targets,
+                'missing_targets': missing_targets,
+                'warnings': ['部分标的交易统计数据不可用；请检查缓存、日期和权限'],
+                'data': {t: data[t] for t in available_targets if t in data}
+            }
+        return data
+
+    # target_type == 'market'
+    if not isinstance(data, dict):
+        raise TdxDataError('全市场交易统计响应必须为字典')
+    if not data or not is_trading_value_available(data):
+        raise TdxIncompleteDataError(
+            '全市场交易统计数据为空或无可用记录，请核对日期区间与客户端缓存',
+            details={'partial': True, 'market': 'no_data'},
+            data={}
+        )
+    return data

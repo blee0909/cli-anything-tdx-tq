@@ -139,16 +139,20 @@ cli-anything-tdx-tq sector list [选项]
 ```
 
 **参数：**
-- `-t, --type`: 板块类型，0=行业/1=概念/2=风格（默认：0）
+- `-c, --category`: 板块类别，可选 all（全部板块[10]）、industry（行业[11]）、concept（概念[12]）、style（风格[13]）、region（地区[14]）、industry-concept（行业+概念[15]）、research1/2/3（研究行业一/二/三级[16/17/18]）、ext（扩展市场板块[110]）（默认：all）
+- `-t, --type, --list-type`: 返回格式，0=仅代码列表，1=代码与名称（默认：0）
 - `--json`: 以 JSON 格式输出
 
 **示例：**
 ```bash
-# 获取行业板块
+# 获取全部板块代码列表
 cli-anything-tdx-tq sector list
 
+# 获取行业板块（代码与名称）
+cli-anything-tdx-tq sector list -c industry -t 1
+
 # 获取概念板块
-cli-anything-tdx-tq sector list -t 1
+cli-anything-tdx-tq sector list -c concept --json
 ```
 
 #### sector stocks - 获取板块成分股
@@ -196,6 +200,42 @@ cli-anything-tdx-tq financial get -s <股票列表> -f <字段列表> [选项]
 cli-anything-tdx-tq financial get -s 600487.SH -f FN1,FN4,FN6
 cli-anything-tdx-tq financial get -s 600487.SH -f FN230,FN232 --start 20230101 --end 20241231
 ```
+
+#### financial trading - 获取交易统计特征数据
+
+```bash
+cli-anything-tdx-tq financial trading -t <stock|sector|market> -f <字段列表> [选项]
+```
+
+**参数：**
+- `-t, --type`: 统计类型，可选 stock（个股）、sector（板块）、market（全市场）（默认：stock）
+- `--target`: 标的代码列表（stock 时为个股代码如 600519.SH，sector 时为板块代码如 880201.SH；stock/sector 时必填）
+- `-f, --fields`: 统计指标字段，逗号分隔（个股如 GP01,GP02，板块如 BK05,BK06，全市场如 SC01,SC02）（必填）
+- `--start`: 开始时间 YYYYMMDD
+- `--end`: 结束时间 YYYYMMDD
+- `--allow-partial`: 允许部分可用数据，返回带完整性说明的 JSON 信封
+- `--json`: 以 JSON 格式输出
+
+**示例：**
+```bash
+# 获取个股交易统计
+cli-anything-tdx-tq financial trading -t stock --target 600519.SH -f GP01,GP16 --start 20261001 --end 20261023 --json
+
+# 获取全市场交易统计
+cli-anything-tdx-tq financial trading -t market -f SC01,SC02 --start 20261001 --end 20261023 --json
+```
+
+#### financial one - 获取股票最新单条财务指标
+
+```bash
+cli-anything-tdx-tq financial one -s <股票列表> -f <最新字段列表> [选项]
+```
+
+**参数：**
+- `-s, --stocks`: 股票代码列表，逗号分隔（必填）
+- `-f, --fields`: 字段列表，逗号分隔（必填，如 GO1,GO2 一致预期，GO26 解禁，GO29 机构持仓，GO35 业绩预告）
+- `--allow-partial`: 允许部分可用数据
+- `--json`: 以 JSON 格式输出
 
 ### formula - 公式调用
 

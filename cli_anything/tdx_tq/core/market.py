@@ -55,6 +55,7 @@ class MarketRequest:
     count: int | None = None
     start: str | None = None
     end: str | None = None
+    fields: list[str] | None = None
 
     def __post_init__(self):
         normalize_period(self.period)
@@ -66,11 +67,14 @@ class MarketRequest:
 
     def sdk_kwargs(self):
         upper = date_bound(self.end, end=True)
-        return {'period': normalize_period(self.period),
-                'count': -1 if self.start is not None else (self.count or 60),
-                'start_time': self.start or '',
-                'end_time': upper.strftime('%Y%m%d%H%M%S') if upper else '',
-                'fill_data': False}
+        kwargs = {'period': normalize_period(self.period),
+                  'count': -1 if self.start is not None else (self.count or 60),
+                  'start_time': self.start or '',
+                  'end_time': upper.strftime('%Y%m%d%H%M%S') if upper else '',
+                  'fill_data': False}
+        if self.fields is not None:
+            kwargs['field_list'] = self.fields
+        return kwargs
 
     def validate_output(self, data):
         lower, upper = date_bound(self.start), date_bound(self.end, end=True)

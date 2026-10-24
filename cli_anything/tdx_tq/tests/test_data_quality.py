@@ -10,7 +10,10 @@ from cli_anything.tdx_tq import tdx_tq_cli as cli
 from cli_anything.tdx_tq.core.errors import TdxDataError, TdxIncompleteDataError, TdxParamError
 from cli_anything.tdx_tq.core.market import MarketRequest, date_bound, reformat_kline_data
 from cli_anything.tdx_tq.core.protocol import ACTIVE_TRACE
-from cli_anything.tdx_tq.core.quality import assess_financial, assess_market, parse_fields, read_batch
+from cli_anything.tdx_tq.core.quality import (
+    assess_financial, assess_market, assess_trading, is_trading_value_available,
+    parse_fields, read_batch
+)
 from cli_anything.tdx_tq.core.sdk import TqAdapter
 from cli_anything.tdx_tq.tests.test_contracts import Session
 from cli_anything.tdx_tq.tests.test_protocol import make_sdk, reply
@@ -300,3 +303,81 @@ def test_provider_item_error_remains_partial_even_when_values_exist():
 def test_legacy_nonadapter_batch_read_is_supported():
     raw = types.SimpleNamespace(get_financial_data=lambda **kwargs:{S:{'FN1':1}})
     assert read_batch(raw,'get_financial_data') == ({S:{'FN1':1}}, {})
+
+
+def test_trading_value_available_check():
+    assert is_trading_value_available(None) is False
+    assert is_trading_value_available('') is False
+    assert is_trading_value_available('--') is False
+    assert is_trading_value_available(['--', '']) is False
+    assert is_trading_value_available({'a': None, 'b': '--'}) is False
+    assert is_trading_value_available(1.23) is True
+    assert is_trading_value_available({'GP01': [10.5]}) is True
+    assert is_trading_value_available(pd.DataFrame({'a': [1]})) is True
+    assert is_trading_value_available(pd.DataFrame({'a': [None]})) is False
+
+
+def test_assess_trading_stock_missing_and_partial():
+    with pytest.raises(TdxIncompleteDataError, match="交易统计数据不可用"):
+        assess_trading({S: None}, 'stock', [S], ['GP01'])
+
+    with pytest.raises(TdxIncompleteDataError, match="交易统计数据不可用"):
+        assess_trading({S: {'GP01': ['--', '--']}}, 'stock', [S], ['GP01'])
+
+    with pytest.raises(TdxIncompleteDataError, match="没有可用的交易统计数据"):
+        assess_trading({}, 'stock', [S], ['GP01'])
+
+    multi_raw = {S: {'GP01': [10.5]}, OTHER: None}
+    with pytest.raises(TdxIncompleteDataError, match="请求的数据不完整"):
+        assess_trading(multi_raw, 'stock', [S, OTHER], ['GP01'], allow_partial=False)
+
+    partial = assess_trading(multi_raw, 'stock', [S, OTHER], ['GP01'], allow_partial=True)
+    assert partial['partial'] is True
+    assert partial['available_targets'] == [S]
+    assert partial['missing_targets'] == [OTHER]
+    assert S in partial['data']
+
+
+def test_assess_trading_market_empty_rejected():
+    with pytest.raises(TdxIncompleteDataError, match="全市场交易统计数据为空"):
+        assess_trading({}, 'market', ['market'], ['SC01'])
+
+    with pytest.raises(TdxIncompleteDataError, match="全市场交易统计数据为空"):
+        assess_trading({'SC01': None}, 'market', ['market'], ['SC01'])
+
+    valid_market = {'SC01': {'20261023': 100}}
+    assert assess_trading(valid_market, 'market', ['market'], ['SC01']) == valid_market
+
+
+def test_assess_financial_with_one_data_scalars():
+    data = {
+        S: {'GO1': '31.39', 'GO2': '7150.00'},
+        OTHER: {'GO1': '--', 'GO2': None},
+    }
+    batch = assess_financial(data, [S, OTHER], ['GO1', 'GO2'])
+    assert batch.metadata['partial'] is True
+    assert batch.data[S] == {'GO1': '31.39', 'GO2': '7150.00'}
+    assert OTHER not in batch.data
+    assert batch.missing_fields[OTHER] == ['GO1', 'GO2']
+
+    with pytest.raises(TdxIncompleteDataError):
+        batch.require(allow_partial=False)
+    assert batch.require(allow_partial=True).data == {S: {'GO1': '31.39', 'GO2': '7150.00'}}
+
+
+def test_assess_market_with_custom_requested_fields():
+    data = {
+        S: [{'date': '20261020', 'open': 10.0, 'volume': 100.0}],
+    }
+    batch = assess_market(data, [S], fields=['open', 'volume'])
+    assert batch.metadata['partial'] is False
+    assert batch.data[S] == data[S]
+
+    data_missing = {
+        S: [{'date': '20261020', 'open': 10.0}],
+    }
+    batch_missing = assess_market(data_missing, [S], fields=['open', 'volume'])
+    assert batch_missing.metadata['partial'] is True
+    assert batch_missing.missing_fields[S] == ['volume']
+
+

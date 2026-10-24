@@ -122,3 +122,60 @@ def test_retry_metadata_distinguishes_static_faults_from_reads():
     assert TdxInitError('missing DLL').retryable is False
     assert TdxReadTimeoutError('read timeout').retryable is True
     assert TdxExecutionUnknownError('submit timeout').retryable is False
+
+
+def test_suffix_mappings_patched():
+    mod = types.SimpleNamespace(
+        SUPPORTED_STOCK_SUFFIXES={'SH', 'SZ'},
+        MARKET_NUM_BY_SUFFIX={'SH': '1', 'SZ': '0'},
+        SUPPORTED_MARKET_NUMBERS={'1', '0'}
+    )
+    patch_module(mod)
+    for suffix, num in {'QHZ': '42', 'SSI': '68', 'SGE': '46', 'UZ': '70'}.items():
+        assert suffix in mod.SUPPORTED_STOCK_SUFFIXES
+        assert mod.MARKET_NUM_BY_SUFFIX[suffix] == num
+        assert num in mod.SUPPORTED_MARKET_NUMBERS
+
+
+def test_kline_zero_date_sanitization():
+    class TQ:
+        @classmethod
+        def _fast_format_kline_data(cls, all_data, stock_list, fill_data):
+            return all_data
+    mod = types.SimpleNamespace(tq=TQ)
+    patch_module(mod)
+    raw = {
+        'GDP.HG': {'Date': ['0'], 'Time': ['0'], 'Close': ['0.00']},
+        '600519.SH': {'Date': ['20261023'], 'Time': ['0'], 'Close': ['1320.00']},
+        'MIXED.SH': {'Date': ['0', '20261023'], 'Time': ['0', '0'], 'Close': ['0', '10.0']}
+    }
+    result = mod.tq._fast_format_kline_data(raw, list(raw.keys()), False)
+    assert result['GDP.HG'] == {}
+    assert result['600519.SH'] == raw['600519.SH']
+    assert result['MIXED.SH']['Date'] == ['20261023']
+    assert result['MIXED.SH']['Close'] == ['10.0']
+
+
+def test_scjy_none_normalized_to_empty_dict():
+    class TQ:
+        @classmethod
+        def get_scjy_value(cls, **kw):
+            return None
+        @classmethod
+        def get_scjy_value_by_date(cls, **kw):
+            return None
+    mod = types.SimpleNamespace(tq=TQ)
+    patch_module(mod)
+    assert mod.tq.get_scjy_value() == {}
+    assert mod.tq.get_scjy_value_by_date() == {}
+    assert validate_result(None, 'get_scjy_value') == {}
+    assert validate_result(None, 'get_scjy_value_by_date') == {}
+
+
+def test_runtime_value_error_wrapped_as_data_error():
+    def bad_parse(**kw):
+        raise ValueError("time data '0' does not match format")
+    sdk = TqAdapter(types.SimpleNamespace(tq=types.SimpleNamespace(get_market_data=bad_parse)))
+    with pytest.raises(TdxDataError, match="运行时数据解析失败"):
+        sdk.get_market_data()
+

@@ -7,11 +7,12 @@
 | stock_account | 非布尔的非负整数句柄 | 账户查询原生 GetOrderStr/type=0 的 ErrorId=9，或成功回执 Value=-1，可返回 -1 | 无对应依据的 -1、错误类型、空响应、其他原生错误：ACCOUNT_STATE_UNKNOWN |
 | query_stock_asset | 非空字典，并存在成功原生回执 | 不接受 {} 作为可用资产信息 | 原生失败或数据形态错误：SDK_DATA_ERROR |
 | query_stock_positions、query_stock_orders | 列表，并存在成功原生回执 | 成功回执确认的 [] 有效 | 传输失败与无可核实回执不能解释为空持仓或空委托 |
-| get_financial_data、get_financial_data_by_date、get_gpjy_value、get_bkjy_value、get_scjy_value | 字典，并存在成功原生回执 | 成功回执确认的 {} 可表达数据缺失 | 原生失败或数据类型错误必须失败；financial get/by-date 在命令层进一步核对证券、请求字段与值；trading 统计仍使用既有契约 |
+| get_financial_data、get_financial_data_by_date、get_gpjy_value、get_bkjy_value、get_scjy_value、get_gpjy_value_by_date、get_bkjy_value_by_date、get_scjy_value_by_date、get_gp_one_data、formula_exp、formula_process_mul_exp | 字典，并存在成功原生回执 | 成功回执确认的 {} 可表达数据缺失 | 原生失败或数据类型错误必须失败；financial get/by-date/one 在命令层进一步核对证券、请求字段与完整性；trading 统计支持日期与区间双模式 |
+| get_relation、get_ipo_info、get_trackzs_etf_info、get_gb_info_by_date | 列表，并存在成功原生回执 | 成功回执确认的 [] 有效 | 原生失败或数据类型错误必须失败；gb 支持日期列表与起止日期区间双模式 |
 | get_market_snapshot、get_market_data、get_stock_info | 可用的非空结果 | 不接受必要数据为空 | 原生错误、必要数据缺失必须失败 |
 | 其他读取 | 保留 SDK 既有结果结构 | 不统一禁止空集合 | 捕获到原生错误时失败；本表尚未逐字段约束全部供应商返回类型 |
 | order_stock、cancel_order_stock | 字典，且有效 ErrorId=0；代表 SDK 受理 | 无 | 明确负回执为 SDK_DATA_ERROR；发出后空响应、畸形回执、传输/执行中断为 TRADE_STATE_UNKNOWN |
-| 客户端、板块、缓存操作 | 字典或 JSON 字符串包含有效 ErrorId=0，保留原结果类型 | 无 | 明确负回执失败；发出后不能确认则 OPERATION_STATE_UNKNOWN |
+| 客户端、板块、缓存操作、文件下载 (download_file) | 字典或 JSON 字符串包含有效 ErrorId=0，保留原结果类型 | 无 | 明确负回执失败；发出后不能确认则 OPERATION_STATE_UNKNOWN |
 
 ErrorId 必须为整数或规范的数字字符串；布尔值、null、对象、非数字字符串均不是可靠确认。有效整数码在供应商方法比较前规范为数字字符串（例如整数 0 转为字符串 0），避免供应商仅接受字符串成功码而丢失 Value。原生 Value 非空而受保护读取方法返回空值时额外拒绝。SDK 传输分页 TPythPaged 可不带最终 ErrorId，其重组后的 JSON 仍需核对；分页外层明确错误不会被忽略。发生过原生失败后，后续成功或连接恢复不能抹去前面的失败证据。
 
@@ -24,6 +25,7 @@ ErrorId 必须为整数或规范的数字字符串；布尔值、null、对象�
 | send_message / send_warn / send_user_block | SetMsgToMain | 2 / 4 / 1 |
 | create_sector / delete_sector / rename_sector / clear_sector | SetMsgToMain | 11 / 12 / 13 / 14 |
 | refresh_cache / refresh_kline | GetTdxDataStr | 16 / 17 |
+| download_file | GetTdxDataStr | 18 |
 
 原生操作接口不存在时，在调用 SDK 方法前拒绝执行。已知 SDK 在进入原生函数前拒绝参数或终止时，不会被误报为已提交后的未知状态；对于没有原生证据的替代后端，服务层在调用后发生异常时保守标记未知。
 
@@ -36,6 +38,18 @@ TRADE_STATE_UNKNOWN 与 OPERATION_STATE_UNKNOWN 的 retryable 为 false。读取
 除权除息 JSON 通过统一序列化器保留 SDK 的 Date 索引，日期使用 ISO 格式。K 线、财务等其他接口继续保留各自已有字段结构。
 
 当前仍没有跨进程幂等提交、持久化操作日志、账户并发协调或可抢占的整体 deadline。真实集成测试只读取客户端；交易、撤单、板块和 GUI 写操作使用内存原生函数替身。协议兼容性仅针对已验证本机 SDK，其他版本须补充兼容验证。
+
+## 涨跌停最近事件日期
+
+`market zdt -s 002242.SZ --json` 保留 `{证券代码: {当天明细字段}}` 的结构，在每只证券内新增 `last_limit_up_date`、`last_limit_down_date` 和 `history`。前两者为 ISO 日期（YYYY-MM-DD）或 null；分别读取 `get_more_info` 的 `ZTDate_Recent` 和 `DTDate_Recent`，不根据涨跌幅、板数或当前状态推算日期。
+
+`history.scope=sdk_recent_events`，`source=get_more_info`，`as_of` 为客户端 `HqDate`（缺失时为 null，不用本机日期代替）。官方将字段描述为近两年，故 `documented_lookback_years=2`；本机实测也会返回更早事件，保留原值，并在 `outside_documented_window` 列出早于行情日期往前两年的日期字段名。行情日期缺失时不进行范围比对。此标记只说明文档与返回范围的差异，不保证完整历史。
+
+`limit_up_status` / `limit_down_status` 分别为 `found`（有效日期）、`no_record`（SDK 明确返回 0 或 00000000）或 `unavailable`（缺字段、空串或 null）。零值只表示接口没有给出事件日期，不能证明全历史无事件；字段缺失也不能证明需要付费。SDK 没有进一步区分的盘中触板、收盘封板口径不由 CLI 自行推断。
+
+当天数据缺少请求证券、日期格式无效、事件晚于行情日期或读取发生 SDK 错误时，命令退出非零，不输出伪造日期。多证券请求按输入顺序返回；读取额外日期字段需要每只证券调用一次 `get_more_info`。当前功能不返回全历史事件列表，也不提供历史截止日期查询。
+
+字段范围依据[通达信官方字段说明](https://help.tdx.com.cn/quant/docs/markdown/mindoc-1hjbidnohpjn4/mindoc-1hlir5r0t9hgc.html)。
 
 ## 批量读取完整性与日期模式
 

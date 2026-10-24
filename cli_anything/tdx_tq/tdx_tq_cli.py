@@ -17,7 +17,8 @@ from pathlib import Path
 from .core.session import session, TdxError
 from .core.errors import TdxDataError, TdxParamError
 from .core.market import reformat_kline_data as _reformat_kline_data, normalize_period, stock_code, validate_dates, MarketRequest
-from .core.quality import parse_fields, read_batch, assess_market, assess_financial
+from .core.limits import get_limit_summary
+from .core.quality import parse_fields, read_batch, assess_market, assess_financial, assess_trading
 from .core.trading import OrderRequest, submit_order, cancel_order
 from .core.sdk import validate_result
 from .utils.cli import JsonGroup, configure_debug, handle_error as _handle_error
@@ -119,17 +120,19 @@ def market():
 @click.option('--dividend', '-d', type=click.Choice(['none', 'front', 'back']), default='front', help='复权类型 (默认 front)')
 @click.option('--start', help='区间开始时间 (YYYYMMDD 或 YYYYMMDDHHMMSS)，与 --count 互斥')
 @click.option('--end', help='结束时间 (YYYYMMDD 包含整日，或 YYYYMMDDHHMMSS)')
+@click.option('--fields', '-f', help='指定字段，逗号分隔 (如 open,high,low,close,volume)')
 @click.option('--allow-partial', is_flag=True, help='允许部分可用数据，返回带完整性说明的 JSON 信封')
 @click.option('--output', '-o', help='输出文件路径 (.csv, .json, .xlsx)')
 @click.option('--json', 'as_json', is_flag=True, help='以 JSON 格式输出')
 @click.pass_context
 def market_get(ctx, stocks: str, period: str, count: Optional[int], dividend: str,
-               start: Optional[str], end: Optional[str], allow_partial: bool,
-               output: Optional[str], as_json: bool):
+               start: Optional[str], end: Optional[str], fields: Optional[str],
+               allow_partial: bool, output: Optional[str], as_json: bool):
     """获取 K 线；指定 --start 读取日期区间，否则读取尾部数量。"""
     try:
         stock_list = _parse_stock_list(stocks)
-        request = MarketRequest(period, count, start, end)
+        field_list = [f.strip() for f in fields.split(',') if f.strip()] if fields else None
+        request = MarketRequest(period, count, start, end, fields=field_list)
         fmt = None
         if output:
             fmt = {'.csv': 'csv', '.json': 'json', '.xlsx': 'excel'}.get(Path(output).suffix.lower())
@@ -140,7 +143,7 @@ def market_get(ctx, stocks: str, period: str, count: Optional[int], dividend: st
                                     dividend_type=dividend, **request.sdk_kwargs())
         reformatted = _reformat_kline_data(data)
         request.validate_output(reformatted)
-        batch = assess_market(reformatted, stock_list, metadata).require(allow_partial)
+        batch = assess_market(reformatted, stock_list, metadata, fields=field_list).require(allow_partial)
         exported = {}
         if output:
             rows = [dict(bar, stock=code) for code, bars in batch.data.items() for bar in bars]
@@ -162,18 +165,21 @@ def market_get(ctx, stocks: str, period: str, count: Optional[int], dividend: st
 
 @market.command('snapshot')
 @click.option('--stock', '-s', required=True, help='股票代码，支持单只/多只/管道输入 (例: 600519.SH 或 -)')
+@click.option('--fields', '-f', help='指定字段，逗号分隔 (例: Open,High,Low,Close)')
 @click.option('--json', 'as_json', is_flag=True, help='以 JSON 格式输出')
 @click.pass_context
-def market_snapshot(ctx, stock: str, as_json: bool):
+def market_snapshot(ctx, stock: str, fields: Optional[str], as_json: bool):
     """获取实时五档行情快照 (支持多代码与管道输入)"""
     try:
         session.ensure_initialized()
         stk_list = _parse_stock_list(stock)
         if not stk_list:
             raise ValueError("未指定有效的股票代码")
+        field_list = [f.strip() for f in fields.split(',') if f.strip()] if fields else []
 
         if len(stk_list) == 1:
-            snapshot = validate_result(session.tdx.get_market_snapshot(stk_list[0]), 'get_market_snapshot', require_data=True)
+            snapshot = validate_result(session.tdx.get_market_snapshot(stk_list[0], field_list=field_list),
+                                       'get_market_snapshot', require_data=True)
             if as_json:
                 click.echo(to_json(snapshot, ensure_ascii=False, indent=2))
             else:
@@ -183,7 +189,8 @@ def market_snapshot(ctx, stock: str, as_json: bool):
         else:
             snapshots = {}
             for s in stk_list:
-                snapshots[s] = validate_result(session.tdx.get_market_snapshot(s), 'get_market_snapshot', require_data=True)
+                snapshots[s] = validate_result(session.tdx.get_market_snapshot(s, field_list=field_list),
+                                               'get_market_snapshot', require_data=True)
             if as_json:
                 click.echo(to_json(snapshots, ensure_ascii=False, indent=2))
             else:
@@ -227,18 +234,32 @@ def market_divid(ctx, stock: str, start: Optional[str], end: Optional[str], as_j
 @click.option('--json', 'as_json', is_flag=True, help='以 JSON 格式输出')
 @click.pass_context
 def market_zdt(ctx, stocks: str, as_json: bool):
-    """获取指定股票的涨跌停状态与封板明细；不生成全市场连板天梯。"""
+    """获取当天涨跌停明细及客户端最近涨停、跌停日期。
+
+    日期来自 ZTDate_Recent/DTDate_Recent，不是全部历史记录。
+    官方描述为近两年；客户端可能返回更早日期，此时在 history 的
+    outside_documented_window 中标明，范围以客户端为准。
+    日期为 null 时检查 history 中的状态：no_record 表示 SDK 返回零值，
+    unavailable 表示未提供字段；均不能解释为历史上从未涨跌停。
+    不生成全市场连板天梯。
+    """
     try:
-        session.ensure_initialized()
         stock_list = _parse_stock_list(stocks)
-        res = session.tdx.get_zdt_data(stock_list=stock_list)
+        session.ensure_initialized()
+        res = get_limit_summary(session.tdx, stock_list)
 
         if as_json:
             click.echo(to_json(res, ensure_ascii=False, indent=2))
         else:
-            click.echo("=== 涨跌停数据 ===")
+            click.echo("=== 当天涨跌停明细与客户端最近事件 ===")
             for code, data in res.items():
-                click.echo(f"{code}: {data}")
+                history = data['history']
+                up = data['last_limit_up_date'] or history['limit_up_status']
+                down = data['last_limit_down_date'] or history['limit_down_status']
+                click.echo(f"{code}: 最近涨停日期={up}，最近跌停日期={down} (客户端记录)")
+                if history['outside_documented_window']:
+                    click.echo("提示：客户端返回了超出官方近两年范围的日期，已保留原值。")
+                click.echo(to_json(data, ensure_ascii=False, indent=2))
     except Exception as e:
         _handle_error(ctx, e, as_json, "获取涨跌停数据失败")
 
@@ -289,15 +310,14 @@ def market_pv(ctx, stocks: str, as_json: bool):
 @click.option('--market', '-m', default='AG', help='市场标识 (AG=A股, HK=港股, US=美股, QH=期货, ZS=指数)')
 @click.option('--force', is_flag=True, help='是否强制刷新全部缓存')
 @click.option('--stocks', '-s', help='刷新指定股票的历史K线缓存，逗号分隔')
-@click.option('--period', '-p', default='1d', help='K线周期 (1m, 5m, 1d)')
+@click.option('--period', '-p', default='1d', type=click.Choice(['1m', '5m', '1d'], case_sensitive=False),
+              help='历史K线缓存周期 (仅支持 1m, 5m, 1d；默认 1d)')
 @click.option('--json', 'as_json', is_flag=True, help='以 JSON 格式输出')
 @click.pass_context
 def market_refresh(ctx, market: str, force: bool, stocks: Optional[str], period: str, as_json: bool):
     """刷新客户端行情缓存。"""
     try:
         stock_list = _parse_stock_list(stocks) if stocks else None
-        if stocks:
-            period = normalize_period(period)
         session.ensure_initialized()
         result = (session.tdx.refresh_kline(stock_list=stock_list, period=period) if stocks
                   else session.tdx.refresh_cache(market=market, force=force))
@@ -316,14 +336,16 @@ def stock():
 
 @stock.command('info')
 @click.option('--stock', '-s', required=True, help='股票代码 (例: 600519.SH)')
+@click.option('--fields', '-f', help='指定字段，逗号分隔 (例: Name,Unit,VolBase)')
 @click.option('--json', 'as_json', is_flag=True, help='以 JSON 格式输出')
 @click.pass_context
-def stock_info(ctx, stock: str, as_json: bool):
+def stock_info(ctx, stock: str, fields: Optional[str], as_json: bool):
     """获取股票基础财务与属性信息"""
     try:
         stock = stock_code(stock)
+        field_list = [f.strip() for f in fields.split(',') if f.strip()] if fields else []
         session.ensure_initialized()
-        info = session.tdx.get_stock_info(stock.strip())
+        info = session.tdx.get_stock_info(stock.strip(), field_list=field_list)
 
         if as_json:
             click.echo(to_json(info, ensure_ascii=False, indent=2))
@@ -433,28 +455,39 @@ def stock_search(ctx, keyword: str, as_json: bool):
 @click.option('--stock', '-s', required=True, help='股票代码 (例: 600519.SH)')
 @click.option('--count', '-c', default=5, type=click.IntRange(min=1), help='获取记录数 (默认 5)')
 @click.option('--dates', '-d', help='指定交易日期列表，逗号分隔 (如 20261020,20261019)')
+@click.option('--start', help='开始时间 (YYYYMMDD)，指定区间时与 --count / --dates 互斥')
+@click.option('--end', help='结束时间 (YYYYMMDD)')
 @click.option('--json', 'as_json', is_flag=True, help='以 JSON 格式输出')
 @click.pass_context
-def stock_gb(ctx, stock: str, count: int, dates: Optional[str], as_json: bool):
-    """查询真实日期的股本数据，日期不足时不重复补齐。"""
+def stock_gb(ctx, stock: str, count: int, dates: Optional[str],
+             start: Optional[str], end: Optional[str], as_json: bool):
+    """查询真实日期的股本数据，支持指定日期列表或起止日期区间。"""
     try:
         stock = stock_code(stock)
         session.ensure_initialized()
-        if dates:
-            date_list = list(dict.fromkeys(d.strip() for d in dates.split(',') if d.strip()))
-            if not date_list:
-                raise TdxParamError("日期列表不能为空")
-            for date in date_list:
-                validate_dates(date, None)
+        if start:
+            if dates:
+                raise TdxParamError("--start/--end 与 --dates 不可同时指定")
+            if ctx.get_parameter_source('count') == click.core.ParameterSource.COMMANDLINE:
+                raise TdxParamError("--start/--end 与 --count 不可同时指定")
+            validate_dates(start, end)
+            data = session.tdx.get_gb_info_by_date(stock_code=stock, start_date=start, end_date=end or '')
         else:
-            date_list = session.get_recent_trading_dates(count=count)
-        date_list = date_list[-count:]
-        if not date_list:
-            raise TdxDataError("没有可用交易日")
-        if len(date_list) < count:
-            import logging
-            logging.getLogger('cli_anything.tdx_tq').warning('仅有 %d 个有效日期，请求 %d 个', len(date_list), count)
-        data = session.tdx.get_gb_info(stock_code=stock, date_list=date_list, count=len(date_list))
+            if dates:
+                date_list = list(dict.fromkeys(d.strip() for d in dates.split(',') if d.strip()))
+                if not date_list:
+                    raise TdxParamError("日期列表不能为空")
+                for date in date_list:
+                    validate_dates(date, None)
+            else:
+                date_list = session.get_recent_trading_dates(count=count)
+            date_list = date_list[-count:]
+            if not date_list:
+                raise TdxDataError("没有可用交易日")
+            if len(date_list) < count:
+                import logging
+                logging.getLogger('cli_anything.tdx_tq').warning('仅有 %d 个有效日期，请求 %d 个', len(date_list), count)
+            data = session.tdx.get_gb_info(stock_code=stock, date_list=date_list, count=len(date_list))
         click.echo(to_json(data) if as_json else pd.DataFrame(data).to_string(index=False))
     except Exception as e:
         _handle_error(ctx, e, as_json, "获取股本信息失败")
@@ -462,14 +495,16 @@ def stock_gb(ctx, stock: str, count: int, dates: Optional[str], as_json: bool):
 
 @stock.command('kzz')
 @click.option('--stock', '-s', required=True, help='可转债代码 (例: 113050.SH)')
+@click.option('--fields', '-f', help='指定字段，逗号分隔')
 @click.option('--json', 'as_json', is_flag=True, help='以 JSON 格式输出')
 @click.pass_context
-def stock_kzz(ctx, stock: str, as_json: bool):
+def stock_kzz(ctx, stock: str, fields: Optional[str], as_json: bool):
     """获取可转债基本属性信息"""
     try:
         stock = stock_code(stock)
+        field_list = [f.strip() for f in fields.split(',') if f.strip()] if fields else []
         session.ensure_initialized()
-        data = session.tdx.get_kzz_info(stock_code=stock.strip())
+        data = session.tdx.get_kzz_info(stock_code=stock.strip(), field_list=field_list)
 
         if as_json:
             click.echo(to_json(data, ensure_ascii=False, indent=2))
@@ -484,6 +519,76 @@ def stock_kzz(ctx, stock: str, as_json: bool):
         _handle_error(ctx, e, as_json, "获取可转债信息失败")
 
 
+@stock.command('relation')
+@click.option('--stock', '-s', required=True, help='股票代码 (例: 600519.SH)')
+@click.option('--json', 'as_json', is_flag=True, help='以 JSON 格式输出')
+@click.pass_context
+def stock_relation(ctx, stock: str, as_json: bool):
+    """获取股票所属板块关联关系 (所属行业、概念、风格、地区及成分股数量)"""
+    try:
+        stock = stock_code(stock)
+        session.ensure_initialized()
+        data = session.tdx.get_relation(stock_code=stock.strip())
+        if as_json:
+            click.echo(to_json(data, ensure_ascii=False, indent=2))
+        else:
+            click.echo(f"=== {stock} 所属板块关联关系 ({len(data)} 个) ===")
+            if data:
+                click.echo(pd.DataFrame(data).to_string(index=False))
+            else:
+                click.echo("暂无关联板块数据")
+    except Exception as e:
+        _handle_error(ctx, e, as_json, "获取股票关联板块失败")
+
+
+@stock.command('ipo')
+@click.option('--type', '-t', 'ipo_type', default=0, type=click.Choice(['0', '1', '2']),
+              help='申购类型 (0=全部, 1=新股, 2=新发债；默认 0)')
+@click.option('--date', '-d', 'ipo_date', default=0, type=click.Choice(['0', '1']),
+              help='申购时间 (0=今日申购, 1=未来申购；默认 0)')
+@click.option('--json', 'as_json', is_flag=True, help='以 JSON 格式输出')
+@click.pass_context
+def stock_ipo(ctx, ipo_type: str, ipo_date: str, as_json: bool):
+    """获取新股/新债申购信息日历 (今日申购与待申购)"""
+    try:
+        session.ensure_initialized()
+        data = session.tdx.get_ipo_info(ipo_type=int(ipo_type), ipo_date=int(ipo_date))
+        if as_json:
+            click.echo(to_json(data, ensure_ascii=False, indent=2))
+        else:
+            t_str = {'0': '全部', '1': '新股', '2': '新债'}.get(str(ipo_type), '')
+            d_str = {'0': '今日申购', '1': '未来申购'}.get(str(ipo_date), '')
+            click.echo(f"=== {t_str} IPO/申购日历 ({d_str}, 共 {len(data)} 条) ===")
+            if data:
+                click.echo(pd.DataFrame(data).to_string(index=False))
+            else:
+                click.echo("暂无申购信息")
+    except Exception as e:
+        _handle_error(ctx, e, as_json, "获取申购信息失败")
+
+
+@stock.command('etf')
+@click.option('--index', '-z', 'zs_code', required=True, help='指数代码 (例: 000300.SH 或 399001.SZ)')
+@click.option('--json', 'as_json', is_flag=True, help='以 JSON 格式输出')
+@click.pass_context
+def stock_etf(ctx, zs_code: str, as_json: bool):
+    """获取跟踪指定指数的 ETF 基金列表及其行情、IOPV 净值与规模"""
+    try:
+        zs_code = stock_code(zs_code)
+        session.ensure_initialized()
+        data = session.tdx.get_trackzs_etf_info(zs_code=zs_code.strip())
+        if as_json:
+            click.echo(to_json(data, ensure_ascii=False, indent=2))
+        else:
+            click.echo(f"=== 指数 {zs_code} 跟踪 ETF 基金 ({len(data)} 只) ===")
+            if data:
+                click.echo(pd.DataFrame(data).to_string(index=False))
+            else:
+                click.echo("未查找到跟踪该指数的 ETF")
+    except Exception as e:
+        _handle_error(ctx, e, as_json, "获取跟踪 ETF 失败")
+
+
 # ==================== 板块数据命令组 ====================
 
 @cli.group()
@@ -492,16 +597,37 @@ def sector():
     pass
 
 
+SECTOR_CATEGORIES = {
+    'all': None,
+    'industry': '11',
+    'concept': '12',
+    'style': '13',
+    'region': '14',
+    'industry-concept': '15',
+    'research1': '16',
+    'research2': '17',
+    'research3': '18',
+    'ext': '110',
+}
+
+
 @sector.command('list')
-@click.option('--type', '-t', 'list_type', type=click.Choice(['0', '1', '2']), default='0',
-              help='板块类型 (0=行业，1=概念，2=风格)')
+@click.option('--category', '-c', default='all',
+              type=click.Choice(['all', 'industry', 'concept', 'style', 'region', 'industry-concept', 'research1', 'research2', 'research3', 'ext']),
+              help='板块类别 (all=全部板块[10], industry=行业[11], concept=概念[12], style=风格[13], region=地区[14], industry-concept=行业+概念[15], research1=研究一[16], research2=研究二[17], research3=研究三[18], ext=扩展板块[110]；默认 all)')
+@click.option('--list-type', '--type', '-t', 'list_type', default=0, type=click.IntRange(min=0, max=1),
+              help='返回格式 (0=仅代码, 1=代码和名称；--type/-t 为兼容别名)')
 @click.option('--json', 'as_json', is_flag=True, help='以 JSON 格式输出')
 @click.pass_context
-def sector_list(ctx, list_type: str, as_json: bool):
-    """获取系统板块列表"""
+def sector_list(ctx, category: str, list_type: int, as_json: bool):
+    """获取系统板块列表 (支持按分类筛选及代码/名称格式切换)"""
     try:
         session.ensure_initialized()
-        sectors = session.tdx.get_sector_list(list_type=int(list_type))
+        market_code = SECTOR_CATEGORIES.get(category)
+        if market_code is None:
+            sectors = session.tdx.get_sector_list(list_type=int(list_type))
+        else:
+            sectors = session.tdx.get_stock_list(market=market_code, list_type=int(list_type))
 
         if as_json:
             click.echo(to_json(sectors, ensure_ascii=False, indent=2))
@@ -516,15 +642,19 @@ def sector_list(ctx, list_type: str, as_json: bool):
 
 
 @sector.command('stocks')
-@click.option('--sector', '-s', required=True, help='板块代码或名称 (例: 880201.SH 或 半导体)')
-@click.option('--type', '-t', 'list_type', default=0, type=int, help='板块分类')
+@click.option('--sector', '-s', required=True, help='板块代码、名称或自定义板块简称 (例: 半导体、ZXG、CSBK)')
+@click.option('--block-type', default=0, type=click.IntRange(min=0, max=2),
+              help='板块类别 (0=普通板块代码或名称, 1=自定义板块简称, 2=期货；默认 0)')
+@click.option('--list-type', '--type', '-t', 'list_type', default=0, type=click.IntRange(min=0, max=1),
+              help='返回格式 (0=仅代码, 1=代码和名称；--type/-t 为兼容别名)')
 @click.option('--json', 'as_json', is_flag=True, help='以 JSON 格式输出')
 @click.pass_context
-def sector_stocks(ctx, sector: str, list_type: int, as_json: bool):
+def sector_stocks(ctx, sector: str, block_type: int, list_type: int, as_json: bool):
     """获取指定板块的成分股列表"""
     try:
         session.ensure_initialized()
-        stocks = session.tdx.get_stock_list_in_sector(block_code=sector.strip(), list_type=list_type)
+        stocks = session.tdx.get_stock_list_in_sector(
+            block_code=sector.strip(), block_type=block_type, list_type=list_type)
 
         if as_json:
             click.echo(to_json(stocks, ensure_ascii=False, indent=2))
@@ -653,11 +783,13 @@ def financial():
 @click.option('--fields', '-f', required=True, help='字段列表，逗号分隔 (如 FN1,FN4,FN6)')
 @click.option('--start', help='开始时间 (YYYYMMDD 或 YYYYMMDDHHMMSS)')
 @click.option('--end', help='结束时间 (YYYYMMDD 或 YYYYMMDDHHMMSS)')
+@click.option('--report-type', type=click.Choice(['report_time', 'announce_time', 'tag_time']), default='report_time',
+              help='财务报告期口径 (report_time=报告期, announce_time=公告日PIT, tag_time=标签日；默认 report_time)')
 @click.option('--allow-partial', is_flag=True, help='允许部分可用数据，返回带完整性说明的 JSON 信封')
 @click.option('--json', 'as_json', is_flag=True, help='以 JSON 格式输出')
 @click.pass_context
 def financial_get(ctx, stocks: str, fields: str, start: Optional[str], end: Optional[str],
-                  allow_partial: bool, as_json: bool):
+                  report_type: str, allow_partial: bool, as_json: bool):
     """获取专业财务报表历史数据，并检查请求字段完整性。"""
     try:
         stock_list = _parse_stock_list(stocks)
@@ -665,7 +797,8 @@ def financial_get(ctx, stocks: str, fields: str, start: Optional[str], end: Opti
         validate_dates(start, end)
         session.ensure_initialized()
         data, metadata = read_batch(session.tdx, 'get_financial_data', stock_list=stock_list,
-                                    field_list=field_list, start_time=start or '', end_time=end or '')
+                                    field_list=field_list, start_time=start or '', end_time=end or '',
+                                    report_type=report_type)
         batch = assess_financial(data, stock_list, field_list, metadata).require(allow_partial)
         if allow_partial or as_json:
             click.echo(to_json(batch.envelope() if allow_partial else batch.data))
@@ -705,47 +838,114 @@ def financial_by_date(ctx, stocks: str, fields: str, year: int, mmdd: str,
 @click.option('--type', '-t', 'target_type', type=click.Choice(['stock', 'sector', 'market']), default='stock',
               help='交易数据类型')
 @click.option('--target', required=False, default='', help='代码 (股票代码列表或板块代码)')
-@click.option('--fields', '-f', required=True, help='统计指标字段，逗号分隔 (如 GP1,GP2 或 SC1,SC2)')
+@click.option('--fields', '-f', required=True, help='统计指标字段，逗号分隔 (如 GP01,GP02、BK05,BK06 或 SC01,SC02)')
 @click.option('--start', help='开始时间 (YYYYMMDD)')
 @click.option('--end', help='结束时间 (YYYYMMDD)')
+@click.option('--year', '-y', default=0, type=click.IntRange(min=0, max=9999), help='年份 (如 2024，0 表示最新；与 --start/--end 互斥)')
+@click.option('--mmdd', '-m', default='0', type=click.Choice(['0', '331', '630', '930', '1231']), help='报告期月日 (0,331,630,930,1231)')
+@click.option('--allow-partial', is_flag=True, help='允许部分可用数据，返回带完整性说明的 JSON 信封')
 @click.option('--json', 'as_json', is_flag=True, help='以 JSON 格式输出')
 @click.pass_context
 def financial_trading(ctx, target_type: str, target: str, fields: str,
-                      start: Optional[str], end: Optional[str], as_json: bool):
+                      start: Optional[str], end: Optional[str], year: int, mmdd: str,
+                      allow_partial: bool, as_json: bool):
     """获取股票/板块/全市场交易统计特征数据"""
     try:
+        if target_type in ('stock', 'sector') and not target.strip():
+            raise TdxParamError(f"--target 在 -t {target_type} 时为必填项 (例如: 600519.SH 或 板块代码)")
+        if (start or end) and (year != 0 or mmdd != '0'):
+            raise TdxParamError("--start/--end 日期区间与 --year/--mmdd 报告期不可同时指定")
+        validate_dates(start, end)
         session.ensure_initialized()
-        field_list = [f.strip() for f in fields.split(',') if f.strip()]
+        field_list = parse_fields(fields)
 
+        targets = []
+        by_date = (year != 0 or mmdd != '0')
         if target_type == 'stock':
-            stock_list = [s.strip() for s in target.split(',') if s.strip()]
-            res = session.tdx.get_gpjy_value(
-                stock_list=stock_list,
-                field_list=field_list,
-                start_time=start or '',
-                end_time=end or ''
-            )
+            targets = _parse_stock_list(target)
+            if by_date:
+                res = session.tdx.get_gpjy_value_by_date(
+                    stock_list=targets,
+                    field_list=field_list,
+                    year=year,
+                    mmdd=int(mmdd)
+                )
+            else:
+                res = session.tdx.get_gpjy_value(
+                    stock_list=targets,
+                    field_list=field_list,
+                    start_time=start or '',
+                    end_time=end or ''
+                )
         elif target_type == 'sector':
-            sector_list = [s.strip() for s in target.split(',') if s.strip()]
-            res = session.tdx.get_bkjy_value(
-                stock_list=sector_list,
-                field_list=field_list,
-                start_time=start or '',
-                end_time=end or ''
-            )
+            targets = [s.strip() for s in target.split(',') if s.strip()]
+            if not targets:
+                raise TdxParamError("板块代码不得为空")
+            if by_date:
+                res = session.tdx.get_bkjy_value_by_date(
+                    stock_list=targets,
+                    field_list=field_list,
+                    year=year,
+                    mmdd=int(mmdd)
+                )
+            else:
+                res = session.tdx.get_bkjy_value(
+                    stock_list=targets,
+                    field_list=field_list,
+                    start_time=start or '',
+                    end_time=end or ''
+                )
         else:
-            res = session.tdx.get_scjy_value(
-                field_list=field_list,
-                start_time=start or '',
-                end_time=end or ''
-            )
+            targets = ['market']
+            if by_date:
+                res = session.tdx.get_scjy_value_by_date(
+                    field_list=field_list,
+                    year=year,
+                    mmdd=int(mmdd)
+                )
+            else:
+                res = session.tdx.get_scjy_value(
+                    field_list=field_list,
+                    start_time=start or '',
+                    end_time=end or ''
+                )
 
-        if as_json:
-            click.echo(to_json(res, ensure_ascii=False, indent=2))
+        checked = assess_trading(res, target_type, targets, field_list, allow_partial=allow_partial)
+
+        if as_json or allow_partial:
+            click.echo(to_json(checked, ensure_ascii=False, indent=2))
         else:
-            click.echo(res)
+            click.echo(checked)
     except Exception as e:
-        _handle_error(ctx, e, as_json, "获取交易统计数据失败")
+        _handle_error(ctx, e, as_json or allow_partial, "获取交易统计数据失败")
+
+
+@financial.command('one')
+@click.option('--stocks', '-s', required=True, help='股票代码列表，逗号分隔或管道输入 (例: 600519.SH,000001.SZ)')
+@click.option('--fields', '-f', required=True, help='最新单条财务指标字段，逗号分隔 (如 GO1,GO2 一致预期，GO26 解禁，GO29 机构持仓，GO35 业绩预告)')
+@click.option('--allow-partial', is_flag=True, help='允许部分可用数据，返回带完整性说明的 JSON 信封')
+@click.option('--json', 'as_json', is_flag=True, help='以 JSON 格式输出')
+@click.pass_context
+def financial_one(ctx, stocks: str, fields: str, allow_partial: bool, as_json: bool):
+    """获取股票最新单条财务指标 (一致预期、最新解禁、机构持仓、业绩预告等)"""
+    try:
+        stock_list = _parse_stock_list(stocks)
+        field_list = parse_fields(fields)
+        session.ensure_initialized()
+        data, metadata = read_batch(session.tdx, 'get_gp_one_data', stock_list=stock_list, field_list=field_list)
+        batch = assess_financial(data, stock_list, field_list, metadata).require(allow_partial)
+        if allow_partial or as_json:
+            click.echo(to_json(batch.envelope() if allow_partial else batch.data))
+        else:
+            for code, row in batch.data.items():
+                click.echo(f"\n=== {code} 最新单条财务指标 ===")
+                if isinstance(row, dict):
+                    for k, v in row.items():
+                        click.echo(f"{k}: {v}")
+                else:
+                    click.echo(row)
+    except Exception as e:
+        _handle_error(ctx, e, as_json or allow_partial, "获取最新财务数据失败")
 
 
 # ==================== 公式调用与管理命令组 ====================
@@ -806,27 +1006,46 @@ def formula_info(ctx, code: str, formula_type: int, as_json: bool):
 @click.option('--stocks', '-s', help='计算股票列表，逗号分隔 (例: 600519.SH,000001.SZ)')
 @click.option('--period', '-p', default='1d', help='周期 (1d, 5m 等)')
 @click.option('--count', '-c', default=60, type=click.IntRange(min=1), help='K线根数 (默认 60)')
+@click.option('--return-count', default=1, type=click.IntRange(min=0), help='返回记录数 (0 表示全部，默认 1)')
+@click.option('--return-date/--no-return-date', default=False, help='是否返回日期字段 (默认 False)')
+@click.option('--xsflag', default=-1, type=click.IntRange(min=-1, max=8), help='数据小数位数 (-1 默认精度，0-8 为指定位数)')
+@click.option('--start', help='开始时间 (YYYYMMDD)')
+@click.option('--end', help='结束时间 (YYYYMMDD)')
+@click.option('--dividend', type=click.Choice(['0', '1', '2']), default='0', help='复权类型 (0=不复权, 1=前复权, 2=后复权；默认 0)')
 @click.option('--json', 'as_json', is_flag=True, help='以 JSON 格式输出')
 @click.pass_context
-def formula_zb(ctx, name: str, args: str, stocks: Optional[str], period: str, count: int, as_json: bool):
+def formula_zb(ctx, name: str, args: str, stocks: Optional[str], period: str, count: int,
+               return_count: int, return_date: bool, xsflag: int,
+               start: Optional[str], end: Optional[str], dividend: str, as_json: bool):
     """调用通达信指标公式并计算结果"""
     try:
         period = normalize_period(period)
         session.ensure_initialized()
         if stocks:
+            validate_dates(start, end)
             stock_list = _parse_stock_list(stocks)
             result = session.tdx.formula_process_mul_zb(
                 formula_name=name.strip(),
                 formula_arg=args.strip(),
+                return_count=return_count,
+                return_date=return_date,
+                xsflag=xsflag,
                 stock_list=stock_list,
                 stock_period=period,
-                count=count
+                start_time=start or '',
+                end_time=end or '',
+                count=count,
+                dividend_type=int(dividend)
             )
         else:
             result = session.tdx.formula_zb(
                 formula_name=name.strip(),
-                formula_arg=args.strip()
+                formula_arg=args.strip(),
+                xsflag=xsflag
             )
+
+        if isinstance(result, dict) and 'ErrorId' in result and len(result) > 1:
+            result = {k: v for k, v in result.items() if k != 'ErrorId'}
 
         if as_json:
             click.echo(to_json(result, ensure_ascii=False, indent=2))
@@ -843,27 +1062,45 @@ def formula_zb(ctx, name: str, args: str, stocks: Optional[str], period: str, co
 @click.option('--stocks', '-s', help='选股候选股票列表，逗号分隔')
 @click.option('--period', '-p', default='1d', help='周期 (1d 等)')
 @click.option('--count', '-c', default=60, type=click.IntRange(min=1), help='K线根数 (默认 60)')
+@click.option('--return-count', default=1, type=click.IntRange(min=0), help='返回记录数 (0 表示全部，默认 1)')
+@click.option('--return-date/--no-return-date', default=False, help='是否返回日期字段 (默认 False)')
+@click.option('--xsflag', default=-1, type=click.IntRange(min=-1, max=8), help='数据小数位数 (-1 默认精度，0-8 为指定位数)')
+@click.option('--start', help='开始时间 (YYYYMMDD)')
+@click.option('--end', help='结束时间 (YYYYMMDD)')
+@click.option('--dividend', type=click.Choice(['0', '1', '2']), default='0', help='复权类型 (0=不复权, 1=前复权, 2=后复权；默认 0)')
 @click.option('--json', 'as_json', is_flag=True, help='以 JSON 格式输出')
 @click.pass_context
-def formula_xg(ctx, name: str, args: str, stocks: Optional[str], period: str, count: int, as_json: bool):
+def formula_xg(ctx, name: str, args: str, stocks: Optional[str], period: str, count: int,
+               return_count: int, return_date: bool, xsflag: int,
+               start: Optional[str], end: Optional[str], dividend: str, as_json: bool):
     """调用通达信选股公式筛选股票"""
     try:
         period = normalize_period(period)
         session.ensure_initialized()
         if stocks:
+            validate_dates(start, end)
             stock_list = _parse_stock_list(stocks)
             result = session.tdx.formula_process_mul_xg(
                 formula_name=name.strip(),
                 formula_arg=args.strip(),
+                return_count=return_count,
+                return_date=return_date,
                 stock_list=stock_list,
                 stock_period=period,
-                count=count
+                start_time=start or '',
+                end_time=end or '',
+                count=count,
+                dividend_type=int(dividend)
             )
         else:
             result = session.tdx.formula_xg(
                 formula_name=name.strip(),
-                formula_arg=args.strip()
+                formula_arg=args.strip(),
+                xsflag=xsflag
             )
+
+        if isinstance(result, dict) and 'ErrorId' in result and len(result) > 1:
+            result = {k: v for k, v in result.items() if k != 'ErrorId'}
 
         if as_json:
             click.echo(to_json(result, ensure_ascii=False, indent=2))
@@ -872,6 +1109,62 @@ def formula_xg(ctx, name: str, args: str, stocks: Optional[str], period: str, co
             click.echo(result)
     except Exception as e:
         _handle_error(ctx, e, as_json, "调用选股公式失败")
+
+
+@formula.command('exp')
+@click.option('--name', '-n', required=True, help='专家系统公式名称 (如 BBI, MACD)')
+@click.option('--args', '-a', default='', help='公式参数，逗号分隔')
+@click.option('--stocks', '-s', help='计算股票列表，逗号分隔 (例: 600519.SH,000001.SZ)')
+@click.option('--period', '-p', default='1d', help='周期 (1d, 5m 等)')
+@click.option('--count', '-c', default=60, type=click.IntRange(min=1), help='K线根数 (默认 60)')
+@click.option('--return-count', default=1, type=click.IntRange(min=0), help='返回记录数 (0 表示全部，默认 1)')
+@click.option('--return-date/--no-return-date', default=False, help='是否返回日期字段 (默认 False)')
+@click.option('--xsflag', default=-1, type=click.IntRange(min=-1, max=8), help='数据小数位数 (-1 默认精度，0-8 为指定位数)')
+@click.option('--start', help='开始时间 (YYYYMMDD)')
+@click.option('--end', help='结束时间 (YYYYMMDD)')
+@click.option('--dividend', type=click.Choice(['0', '1', '2']), default='0', help='复权类型 (0=不复权, 1=前复权, 2=后复权；默认 0)')
+@click.option('--json', 'as_json', is_flag=True, help='以 JSON 格式输出')
+@click.pass_context
+def formula_exp(ctx, name: str, args: str, stocks: Optional[str], period: str, count: int,
+                return_count: int, return_date: bool, xsflag: int,
+                start: Optional[str], end: Optional[str], dividend: str, as_json: bool):
+    """调用通达信专家系统公式计算买入/卖出信号与评测结果"""
+    try:
+        period = normalize_period(period)
+        session.ensure_initialized()
+        if stocks:
+            validate_dates(start, end)
+            stock_list = _parse_stock_list(stocks)
+            result = session.tdx.formula_process_mul_exp(
+                formula_name=name.strip(),
+                formula_arg=args.strip(),
+                return_count=return_count,
+                return_date=return_date,
+                xsflag=xsflag,
+                stock_list=stock_list,
+                stock_period=period,
+                start_time=start or '',
+                end_time=end or '',
+                count=count,
+                dividend_type=int(dividend)
+            )
+        else:
+            result = session.tdx.formula_exp(
+                formula_name=name.strip(),
+                formula_arg=args.strip(),
+                xsflag=xsflag
+            )
+
+        if isinstance(result, dict) and 'ErrorId' in result and len(result) > 1:
+            result = {k: v for k, v in result.items() if k != 'ErrorId'}
+
+        if as_json:
+            click.echo(to_json(result, ensure_ascii=False, indent=2))
+        else:
+            click.echo(f"=== 专家系统公式: {name} 计算结果 ===")
+            click.echo(result)
+    except Exception as e:
+        _handle_error(ctx, e, as_json, "调用专家系统公式失败")
 
 
 # ==================== 客户端联动与预警命令组 ====================
@@ -951,6 +1244,36 @@ def client_msg(ctx, message: str, as_json: bool):
             click.echo(click.style(f"消息已发送至客户端: {message}", fg='green'))
     except Exception as e:
         _handle_error(ctx, e, as_json, "发送消息失败")
+
+
+@client.command('download')
+@click.option('--stock', '-s', required=True, help='下载文件关联的股票代码 (例: 688318.SH)')
+@click.option('--type', '-t', 'down_type', default=1, type=click.IntRange(min=1, max=7),
+              help='下载文件类型 (1=十大股东, 2=ETF申赎数据等；范围 1-7，默认 1)')
+@click.option('--date', '-d', 'down_date', help='指定时间 (YYYYMMDD 或 YYYYMMDDHHMMSS，默认当前时间)')
+@click.option('--json', 'as_json', is_flag=True, help='以 JSON 格式输出')
+@click.pass_context
+def client_download(ctx, stock: str, down_type: int, down_date: Optional[str], as_json: bool):
+    """从通达信服务器下载盘后或衍生数据文件 (十大股东、ETF申赎数据等)"""
+    try:
+        stock = stock_code(stock)
+        if down_date:
+            validate_dates(down_date, None)
+        session.ensure_initialized()
+        res = session.tdx.download_file(stock_code=stock.strip(), down_time=down_date or '', down_type=int(down_type))
+        if isinstance(res, str):
+            try:
+                res_obj = json.loads(res)
+            except ValueError:
+                res_obj = {'raw': res}
+        else:
+            res_obj = res
+        if as_json:
+            click.echo(to_json({"success": True, "action": "download", "stock": stock.strip(), "result": res_obj}, ensure_ascii=False, indent=2))
+        else:
+            click.echo(click.style(f"下载指令已成功发送 -> {stock.strip()}: {res}", fg='green'))
+    except Exception as e:
+        _handle_error(ctx, e, as_json, "下载文件失败")
 
 
 # ==================== 实盘与模拟交易命令组 ====================
