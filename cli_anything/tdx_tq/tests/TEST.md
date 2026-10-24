@@ -1,12 +1,12 @@
 # 测试与验收
 
-所有命令在仓库根目录执行，使用 Python 3.12/3.13 和 uv.lock。
+所有命令在仓库根目录执行，使用 Python 3.12/3.13。
 
 ~~~powershell
-uv sync --locked --extra test
-uv run --locked --extra test pytest -m "not live" --cov=cli_anything/tdx_tq --cov-report=json:coverage.json
-uv run --locked python scripts/check_coverage.py coverage.json
-uv run --locked --extra test pytest --live -m live -q
+uv sync --extra test
+uv run --extra test pytest -m "not live" --cov=cli_anything/tdx_tq --cov-report=json:coverage.json
+uv run python scripts/check_coverage.py coverage.json
+uv run --extra test pytest --live -m live -q
 uv build
 ~~~
 

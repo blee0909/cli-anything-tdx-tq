@@ -17,7 +17,7 @@ version: 1.1.0
 ## 安装
 
 ```bash
-uv sync --locked
+uv sync
 ```
 
 ## 命令组
@@ -438,7 +438,7 @@ cli-anything-tdx-tq config show
 
 重新安装：
 ```bash
-uv sync --locked
+uv sync
 ```
 
 

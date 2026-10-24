@@ -10,6 +10,7 @@ venv/
 env/
 ENV/
 .uv-cache/
+uv.lock
 
 # Build and package output
 /build/

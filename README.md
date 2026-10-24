@@ -7,17 +7,17 @@
 需要 Windows、Python 3.12/3.13。读取数据前需启动并登录支持 TQ 的通达信客户端，确认安装目录中存在 `PYPlugins/sys/tqcenter.py` 及配套 `TPythClient.dll` / `TPyth.dll`；默认路径为 `D:\tdx`。
 
 ~~~powershell
-uv sync --locked
-uv run --locked tdx-tq --version
-uv run --locked tdx-tq status --json
+uv sync
+uv run tdx-tq --version
+uv run tdx-tq status --json
 ~~~
 
 自定义路径可通过全局 `--tdx-path`、环境变量 `TDX_PATH` 或配置文件指定，优先级依次降低：
 
 ~~~powershell
-uv run --locked tdx-tq config set --tdx-path D:\tdx --json
-uv run --locked tdx-tq config show --json
-uv run --locked tdx-tq --tdx-path D:\tdx market snapshot -s 600519.SH --json
+uv run tdx-tq config set --tdx-path D:\tdx --json
+uv run tdx-tq config show --json
+uv run tdx-tq --tdx-path D:\tdx market snapshot -s 600519.SH --json
 ~~~
 
 ## 2. 证券代码与全市场品种后缀
@@ -123,7 +123,7 @@ uv run --locked tdx-tq --tdx-path D:\tdx market snapshot -s 600519.SH --json
 | `client link` | `exec_to_tdx` | `-s <stock>` `--json` | 联动通达信桌面端切换并展示指定证券 K 线窗口 |
 | `client warn` | `send_warn` | `-s <stock>` `-m <msg>` `-p <price>` `--json` | 向通达信桌面端发送右下角预警弹窗 |
 | `client msg` | `send_message` | `-m <msg>` `--json` | 向通达信桌面端发送通知消息 |
-| `client download` | `download_file` | `-s <stock>` `-t <1..7>` `-d <date>` `--json` | 下载 7 类盘后静态数据文件至 `PYPlugins/data`（`1`=十大股东，`2`=ETF申赎，`3`=最近龙虎榜，`4`=重点监控，`5`=增减持，`6`=高管持股，`7`=停复牌） |
+| `client download` | `download_file` | `-s <stock>` `-t <1..7>` `-d <date>` `--json` | 下载 7 类盘后静态数据文件包至 `PYPlugins/data`（`1`=十大股东，`2`=ETF申赎，`3`=最近龙虎榜，`4`=重点监控，`5`=增减持，`6`=高管持股，`7`=停复牌） |
 
 ### 3.8 实盘与模拟交易 (`trade` — 6 个命令)
 
@@ -140,48 +140,48 @@ uv run --locked tdx-tq --tdx-path D:\tdx market snapshot -s 600519.SH --json
 
 ~~~powershell
 # 1. K 线查询：最近 60 条日线（带字段筛选）或指定日期区间（--start 与 -c 互斥）
-uv run --locked tdx-tq market get -s 600519.SH,000001.SZ -p 1d -c 60 -f open,high,low,close,volume --json
-uv run --locked tdx-tq market get -s 600519.SH --start 20261001 --end 20261020 --json
+uv run tdx-tq market get -s 600519.SH,000001.SZ -p 1d -c 60 -f open,high,low,close,volume --json
+uv run tdx-tq market get -s 600519.SH --start 20261001 --end 20261020 --json
 
 # 2. 实时快照、涨跌停对账、估值扩展信息与可转债属性
-uv run --locked tdx-tq market snapshot -s 600519.SH,510300.SH -f Now,Open,Max,Min,Volume --json
-uv run --locked tdx-tq market zdt -s 600519.SH,000001.SZ --json
-uv run --locked tdx-tq stock more -s 600519.SH -f HqDate,ZTPrice,DTPrice,DynaPE,PB_MRQ --json
-uv run --locked tdx-tq stock kzz -s 123076.SZ -f KZZCode,StockCode,ConvPrice --json
+uv run tdx-tq market snapshot -s 600519.SH,510300.SH -f Now,Open,Max,Min,Volume --json
+uv run tdx-tq market zdt -s 600519.SH,000001.SZ --json
+uv run tdx-tq stock more -s 600519.SH -f HqDate,ZTPrice,DTPrice,DynaPE,PB_MRQ --json
+uv run tdx-tq stock kzz -s 123076.SZ -f KZZCode,StockCode,ConvPrice --json
 
 # 3. 股票列表、股本区间变动、个股板块归属、新股申购与指数跟踪 ETF
-uv run --locked tdx-tq stock list -m 5 --json
-uv run --locked tdx-tq stock gb -s 600519.SH --start 20260101 --end 20261023 --json
-uv run --locked tdx-tq stock relation -s 600519.SH --json
-uv run --locked tdx-tq stock ipo -t 0 -d 0 --json
-uv run --locked tdx-tq stock etf -z 000300.SH --json
+uv run tdx-tq stock list -m 5 --json
+uv run tdx-tq stock gb -s 600519.SH --start 20260101 --end 20261023 --json
+uv run tdx-tq stock relation -s 600519.SH --json
+uv run tdx-tq stock ipo -t 0 -d 0 --json
+uv run tdx-tq stock etf -z 000300.SH --json
 
 # 4. 板块分类筛选与成分股读取（普通板块用 0，自定义板块简称用 --block-type 1）
-uv run --locked tdx-tq sector list -c industry -t 1 --json
-uv run --locked tdx-tq sector stocks -s ZXG --block-type 1 --list-type 1 --json
-uv run --locked tdx-tq sector stocks -s CSBK --block-type 1 --json
+uv run tdx-tq sector list -c industry -t 1 --json
+uv run tdx-tq sector stocks -s ZXG --block-type 1 --list-type 1 --json
+uv run tdx-tq sector stocks -s CSBK --block-type 1 --json
 
 # 5. 专业财务（支持 PIT 公告日口径）、一致预期单条指标与交易统计
-uv run --locked tdx-tq financial get -s 600519.SH -f FN1,FN4 --start 20250101 --end 20251231 --report-type announce_time --json
-uv run --locked tdx-tq financial one -s 600519.SH,000001.SZ -f GO1,GO2,GO29 --json
-uv run --locked tdx-tq financial trading -t stock --target 600519.SH -f GP1 --start 20261001 --end 20261023 --json
-uv run --locked tdx-tq financial trading -t stock --target 600519.SH -f GP16 -y 2025 -m 1231 --json
+uv run tdx-tq financial get -s 600519.SH -f FN1,FN4 --start 20250101 --end 20251231 --report-type announce_time --json
+uv run tdx-tq financial one -s 600519.SH,000001.SZ -f GO1,GO2,GO29 --json
+uv run tdx-tq financial trading -t stock --target 600519.SH -f GP1 --start 20261001 --end 20261023 --json
+uv run tdx-tq financial trading -t stock --target 600519.SH -f GP16 -y 2025 -m 1231 --json
 
 # 6. 技术指标、选股与专家系统公式（支持多期带日期返回）
-uv run --locked tdx-tq formula zb -n MA -a 5,10,20 -s 600519.SH,000001.SZ -c 60 --return-count 3 --return-date --dividend 1 --json
-uv run --locked tdx-tq formula xg -n UPN -a 3 -s 600519.SH,000001.SZ -c 60 --return-count 2 --return-date --json
-uv run --locked tdx-tq formula exp -n MACD -a 12,26,9 -s 600519.SH -c 60 --return-count 2 --return-date --json
+uv run tdx-tq formula zb -n MA -a 5,10,20 -s 600519.SH,000001.SZ -c 60 --return-count 3 --return-date --dividend 1 --json
+uv run tdx-tq formula xg -n UPN -a 3 -s 600519.SH,000001.SZ -c 60 --return-count 2 --return-date --json
+uv run tdx-tq formula exp -n MACD -a 12,26,9 -s 600519.SH -c 60 --return-count 2 --return-date --json
 
 # 7. 下载盘后静态数据文件包（1=十大股东）
-uv run --locked tdx-tq client download -s 688318.SH -t 1 -d 20251231 --json
+uv run tdx-tq client download -s 688318.SH -t 1 -d 20251231 --json
 ~~~
 
 自定义板块写操作与交易委托示例（`trade order` 默认仅预览，添加 `--confirm` 才实际提交）：
 
 ~~~powershell
-uv run --locked tdx-tq sector create -c AIPOOL -n "AI观察池" --json
-uv run --locked tdx-tq sector update-stocks -c AIPOOL -s 600519.SH,000001.SZ --json
-uv run --locked tdx-tq trade order -s 600519.SH -t buy -v 100 -p 10 --json
+uv run tdx-tq sector create -c AIPOOL -n "AI观察池" --json
+uv run tdx-tq sector update-stocks -c AIPOOL -s 600519.SH,000001.SZ --json
+uv run tdx-tq trade order -s 600519.SH -t buy -v 100 -p 10 --json
 ~~~
 
 ## 5. 执行契约与必要说明
@@ -197,8 +197,8 @@ uv run --locked tdx-tq trade order -s 600519.SH -t buy -v 100 -p 10 --json
 所有叶子命令支持 `--json`（保证 `stdout` 仅输出合法 JSON，SDK 诊断与告警均重定向至 `stderr`）。退出码：**`0`** 成功、**`2`** 参数校验错误 (`INVALID_PARAMETER`)、**`1`** 操作或 SDK/数据完整性错误、**`130`** 中止。
 
 ~~~powershell
-uv sync --locked --extra test
-uv run --locked --extra test pytest -m "not live" -q
+uv sync --extra test
+uv run --extra test pytest -m "not live" -q
 ~~~
 
 真实客户端只读回归需显式添加 `--live -m live`；离线回归使用内存替身，不触发任何真实客户端写入或交易。详细架构与协议契约见 [开发文档索引](docs/README.md)。许可为 MIT。

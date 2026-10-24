@@ -91,7 +91,7 @@ def test_readme_shell_examples_parse_without_invoking_callbacks(monkeypatch):
     checked = 0
     for block in re.findall(r"~~~powershell\n(.*?)~~~", _readme(), re.DOTALL):
         for line in block.splitlines():
-            match = re.match(r"(?:uv run --locked )?(?:tdx-tq|cli-anything-tdx-tq) (.+)$", line)
+            match = re.match(r"(?:uv run (?:--locked )?)?(?:tdx-tq|cli-anything-tdx-tq) (.+)$", line)
             if not match:
                 continue
             args = shlex.split(match.group(1))
