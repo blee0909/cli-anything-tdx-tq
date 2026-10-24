@@ -283,12 +283,26 @@ uv run tdx-tq formula xg -n UPN -a 3 -s 600519.SH,000001.SZ -c 60 --return-count
 #   --return-count 2                  : 返回最近两期多空买卖信号
 uv run tdx-tq formula exp -n MACD -a 12,26,9 -s 600519.SH -c 60 --return-count 2 --return-date --json
 
-# 7.1 下载盘后静态数据文件包
+# 7.1 下载个股静态数据文件包（十大股东数据包）
 # 参数说明：
 #   -s, --stocks 688318.SH            : 目标证券代码
 #   -t, --type 1                      : 静态包分类（1=十大股东，2=ETF申赎，3=最新龙虎榜，4=重点监控，5=增减持，6=高管持股，7=停复牌）
 #   -d, --date 20251231               : 数据基准归档日期（YYYYMMDD）
 uv run tdx-tq client download -s 688318.SH -t 1 -d 20251231 --json
+
+# 7.2 下载指定日期全市场 ETF 申购赎回清单 (PCF) 静态数据包
+# 参数说明：
+#   -s, --stocks 510300.SH            : 代表性 ETF 代码
+#   -t, --type 2                      : 2=ETF申赎清单PCF文件
+#   -d, --date 20261023               : 数据日期归档包（YYYYMMDD）
+uv run tdx-tq client download -s 510300.SH -t 2 -d 20261023 --json
+
+# 7.3 下载盘后最新龙虎榜机构席位明细数据包
+# 参数说明：
+#   -s, --stocks 600519.SH            : 代表性证券代码
+#   -t, --type 3                      : 3=最新龙虎榜全明细文件
+#   -d, --date 20261023               : 数据日期归档包（YYYYMMDD）
+uv run tdx-tq client download -s 600519.SH -t 3 -d 20261023 --json
 
 # 8.1 创建自定义板块并批量写入成分股
 # 参数说明：
@@ -297,6 +311,42 @@ uv run tdx-tq client download -s 688318.SH -t 1 -d 20251231 --json
 #   -s, --stocks 600519.SH,000001.SZ  : 批量写入该板块的证券代码列表
 uv run tdx-tq sector create -c AIPOOL -n "AI观察池" --json
 uv run tdx-tq sector update-stocks -c AIPOOL -s 600519.SH,000001.SZ --json
+
+# 9.1 全市场 A 股批量历史 K 线获取与 CSV 导出（管道接收 stock list JSON 数组）
+# 参数说明：
+#   -s, --stocks -                    : 传入减号 '-' 启用管道标准输入，接收批量股票代码 JSON 数组
+#   -p, --period 1d                   : 日线周期
+#   -c, --count 60                    : 读取最近 60 根 Bar
+#   --allow-partial                   : 允许部分标的因停牌或无数据缺失，返回包含完整性说明的信封
+#   -o, --output all_a_daily.csv      : 原子导出为 CSV 文件
+# 管道调用示例（PowerShell）：
+#   $all = uv run tdx-tq stock list -m 5 --json
+#   $all | uv run tdx-tq market get -s - -p 1d -c 60 --allow-partial -o all_a_daily.csv --json
+uv run tdx-tq market get -s - -p 1d -c 60 --allow-partial -o all_a_daily.csv --json
+
+# 9.2 核心指数（沪深300/中证500）成分股历史区间数据批量导出至 Excel
+# 参数说明：
+#   -s, --stocks -                    : 管道输入模式
+#   -p, --period 1d                   : 日线周期
+#   --start 20260901 / --end 20261023 : 历史日期闭区间切片
+#   -f, --fields open,high,low,close,volume : 筛选 OHLCV 核心字段
+#   -o, --output hs300_range.xlsx     : 批量写入 Excel 表格
+uv run tdx-tq market get -s - -p 1d --start 20260901 --end 20261023 -f open,high,low,close,volume --allow-partial -o hs300_range.xlsx --json
+
+# 9.3 全市场行情基础缓存全量强制同步（A股 / 期货）
+# 参数说明：
+#   -m, --market AG                   : 市场标识（AG=全A股，HK=港股，US=美股，QH=期货，ZS=指数）
+#   --force                           : 强制全量重新拉取服务器缓存，更新本地盘后数据索引
+uv run tdx-tq market refresh -m AG --force --json
+uv run tdx-tq market refresh -m QH --force --json
+
+# 9.4 全市场宏观交易与两融持仓历史统计获取
+# 参数说明：
+#   -t, --type market                 : 统计范围设定为全市场宏观级别
+#   --target ALL                      : 目标代码传 ALL
+#   -f, --fields SC01,SC02,SC03       : 全市场两融余额、融券余量与买入统计指标
+#   --start 20260101 / --end 20261023 : 年度历史区间时间序列
+uv run tdx-tq financial trading -t market --target ALL -f SC01,SC02,SC03 --start 20260101 --end 20261023 --allow-partial --json
 ~~~
 
 ## 5. 执行契约与必要说明
