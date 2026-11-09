@@ -8,6 +8,9 @@ class TdxError(Exception):
         super().__init__(message)
         self.details = details
 
+class TdxUnsupportedCapabilityError(TdxError):
+    code = "UNSUPPORTED_SDK_CAPABILITY"
+
 class TdxInitError(TdxError):
     code = "SDK_UNAVAILABLE"
 

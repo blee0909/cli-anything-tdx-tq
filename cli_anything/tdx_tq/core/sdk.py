@@ -1,11 +1,14 @@
 """Lazy SDK loading, narrowly scoped compatibility patches and result contracts."""
 import builtins
+import datetime
 import functools
+import hashlib
 import importlib.util
 import inspect
 import json
 import logging
 import numbers
+import re
 import sys
 import time
 from contextlib import redirect_stdout
@@ -13,10 +16,12 @@ from pathlib import Path
 
 from .errors import (TdxAccountStateUnknownError, TdxDataError, TdxError,
                      TdxExecutionUnknownError, TdxInitError,
-                     TdxOperationUnknownError, TdxParamError, TdxReadTimeoutError)
+                     TdxOperationUnknownError, TdxParamError, TdxReadTimeoutError,
+                     TdxUnsupportedCapabilityError)
 from .protocol import (ACK_METHODS, ACTIVE_TRACE, NATIVE_FUNCTIONS,
                        SIDE_EFFECT_ENDPOINTS, TRADE_METHODS, BATCH_READ_METHODS, RpcTrace, error_id)
 
+_orig_print = builtins.print
 logger = logging.getLogger('cli_anything.tdx_tq')
 REQUIRE_DATA = {'get_market_snapshot', 'get_market_data', 'get_stock_info'}
 READ_TYPES = {
@@ -28,6 +33,16 @@ READ_TYPES = {
     'get_gb_info_by_date': list, 'get_gp_one_data': dict,
     'formula_exp': dict, 'formula_process_mul_exp': dict,
 }
+KNOWN_OPTIONAL_SDK_METHODS = frozenset({
+    'formula_get_all', 'formula_get_info', 'formula_zb', 'formula_xg', 'formula_exp',
+    'formula_process_mul_zb', 'formula_process_mul_xg', 'formula_process_mul_exp',
+    'get_zdt_data', 'get_more_info', 'get_exday_data', 'get_pricevol',
+    'get_gb_info', 'get_gb_info_by_date', 'get_trackzs_etf_info',
+    'get_match_stkinfo', 'get_relation', 'exec_to_tdx', 'stock_account',
+    'query_stock_asset', 'query_stock_positions', 'query_stock_orders',
+    'cancel_order_stock', 'subscribe_hq', 'unsubscribe_hq',
+    'get_subscribe_hq_stock_list', 'print_to_tdx', 'send_file', 'send_bt_data',
+})
 
 
 def validate_result(result, method: str, *, require_data: bool = False, trade: bool = False,
@@ -73,11 +88,15 @@ def validate_result(result, method: str, *, require_data: bool = False, trade: b
 def patch_module(mod) -> None:
     """Redirect SDK prints and repair only the known GBK/empty-bond cases."""
     def quiet_print(*args, **kwargs):
-        if args and isinstance(args[0], str) and any(k in args[0] for k in ('TQ数据', '初始化成功', '已关闭')):
+        if args and isinstance(args[0], str) and any(k in args[0] for k in ('TQ数据', '初始化成功', '已关闭', 'No callback function registered')):
+            return
+        if args and args[0] == 'json:' and not logger.isEnabledFor(logging.DEBUG):
             return
         kwargs['file'] = sys.stderr
-        builtins.print(*args, **kwargs)
+        _orig_print(*args, **kwargs)
+
     mod.print = quiet_print
+
     dll = getattr(mod, 'dll', None)
     if dll is not None:
         functions = []
@@ -137,23 +156,191 @@ def patch_module(mod) -> None:
     market_map = getattr(mod, 'MARKET_NUM_BY_SUFFIX', None)
     if isinstance(market_map, dict):
         market_map.update(extra_markets)
-    market_nums = getattr(mod, 'SUPPORTED_MARKET_NUMBERS', None)
-    if isinstance(market_nums, set):
-        market_nums.update(extra_markets.values())
+    for attr in ('SUPPORTED_MARKET_NUMBERS', 'SUPPORTED_MARKET_NUMS'):
+        market_nums = getattr(mod, attr, None)
+        if isinstance(market_nums, set):
+            market_nums.update(extra_markets.values())
+
+    # Multi-market code validator fix (non-closing)
+    def non_closing_check_stock_code_format(input_data):
+        if not input_data:
+            return False
+        if isinstance(input_data, str):
+            check_list = [input_data]
+        elif isinstance(input_data, (list, tuple, set)):
+            check_list = [item for item in input_data if isinstance(item, str)]
+            if len(check_list) != len(input_data):
+                return False
+        else:
+            return False
+        if not check_list:
+            return False
+        pattern = re.compile(r'^[A-Za-z0-9_-]+\.[A-Za-z]{2,4}$')
+        for code in check_list:
+            if not pattern.match(code):
+                return False
+            symbol, suffix = code.rsplit('.', 1)
+            suffix_upper = suffix.upper()
+            if suffix_upper in ('SH', 'SZ', 'BJ') and (not symbol.isdigit() or len(symbol) != 6):
+                return False
+        return True
+
+    if hasattr(mod, 'check_stock_code_format'):
+        mod.check_stock_code_format = non_closing_check_stock_code_format
 
     tq = getattr(mod, 'tq', None)
     if isinstance(tq, type):
+        if hasattr(tq, '_check_stock_code_format_batch'):
+            tq._check_stock_code_format_batch = classmethod(lambda cls, stock_list: non_closing_check_stock_code_format(stock_list))
+
         if not getattr(tq, '_kzz_patched', False):
-            original = getattr(tq, 'get_kzz_info', None)
-            if original is not None:
+            orig_cb = getattr(tq, 'get_cb_info', None)
+            orig_kzz = getattr(tq, 'get_kzz_info', None)
+            base_fn = orig_kzz or orig_cb
+            if base_fn is not None:
                 def safe_get_kzz_info(cls, stock_code='', field_list=None):
                     try:
-                        return original(stock_code=stock_code, field_list=field_list or [])
+                        res = base_fn(stock_code=stock_code)
                     except IndexError:
                         logger.debug('SDK get_kzz_info empty result', exc_info=True)
                         return {}
+                    except TypeError:
+                        try:
+                            res = base_fn(stock_code=stock_code, field_list=field_list or [])
+                        except IndexError:
+                            logger.debug('SDK get_kzz_info empty result', exc_info=True)
+                            return {}
+                    if field_list and isinstance(res, dict):
+                        lower_fields = {f.lower() for f in field_list} | {'errorid', 'error'}
+                        return {k: v for k, v in res.items() if k.lower() in lower_fields}
+                    return res
                 tq.get_kzz_info = classmethod(safe_get_kzz_info)
+                tq.get_cb_info = classmethod(safe_get_kzz_info)
             tq._kzz_patched = True
+
+        if not getattr(tq, '_snapshot_patched', False):
+            orig_snapshot = getattr(tq, 'get_market_snapshot', None)
+            if orig_snapshot is not None:
+                def safe_get_market_snapshot(cls, stock_code='', field_list=None):
+                    try:
+                        data = orig_snapshot(stock_code=stock_code)
+                    except TypeError:
+                        data = orig_snapshot(stock_code=stock_code, field_list=field_list or [])
+                    if field_list and isinstance(data, dict):
+                        lower_fields = {f.lower() for f in field_list} | {'errorid', 'error'}
+                        return {k: v for k, v in data.items() if k.lower() in lower_fields}
+                    return data
+                tq.get_market_snapshot = classmethod(safe_get_market_snapshot)
+            tq._snapshot_patched = True
+
+        if not getattr(tq, '_watch_cleanup_patched', False):
+            orig_auto_close = getattr(tq, '_auto_close', None)
+            if orig_auto_close is not None:
+                def safe_auto_close(cls):
+                    orig_auto_close()
+                    cls.m_is_init_data_transfer = False
+                    if hasattr(cls, '_sub_hq_update') and isinstance(cls._sub_hq_update, list):
+                        cls._sub_hq_update.clear()
+                tq._auto_close = classmethod(safe_auto_close)
+            tq._watch_cleanup_patched = True
+
+        if not getattr(tq, '_sector_list_patched', False):
+            orig_sector_list = getattr(tq, 'get_sector_list', None)
+            if orig_sector_list is not None:
+                def safe_get_sector_list(cls, list_type=0):
+                    try:
+                        return orig_sector_list(list_type=list_type)
+                    except TypeError:
+                        return orig_sector_list()
+                tq.get_sector_list = classmethod(safe_get_sector_list)
+            tq._sector_list_patched = True
+
+        if not getattr(tq, '_stock_list_patched', False):
+            orig_stock_list = getattr(tq, 'get_stock_list', None)
+            if orig_stock_list is not None:
+                def safe_get_stock_list(cls, market=None, list_type=0):
+                    try:
+                        return orig_stock_list(market=market, list_type=list_type)
+                    except TypeError:
+                        return orig_stock_list(market=market)
+                tq.get_stock_list = classmethod(safe_get_stock_list)
+            tq._stock_list_patched = True
+
+        if not getattr(tq, '_stocks_in_sector_patched', False):
+            orig_stocks_in_sec = getattr(tq, 'get_stock_list_in_sector', None)
+            if orig_stocks_in_sec is not None:
+                def safe_get_stock_list_in_sector(cls, block_code, block_type=0, list_type=0):
+                    try:
+                        return orig_stocks_in_sec(block_code=block_code, block_type=block_type, list_type=list_type)
+                    except TypeError:
+                        return orig_stocks_in_sec(block_code=block_code, block_type=block_type)
+                tq.get_stock_list_in_sector = classmethod(safe_get_stock_list_in_sector)
+            tq._stocks_in_sector_patched = True
+
+        if not getattr(tq, '_divid_patched', False):
+            orig_divid = getattr(tq, 'get_divid_factors', None)
+            if orig_divid is not None:
+                def safe_get_divid_factors(cls, stock_code, start_time='', end_time=''):
+                    return orig_divid(stock_code=stock_code, start_time=start_time or '', end_time=end_time or '')
+                tq.get_divid_factors = classmethod(safe_get_divid_factors)
+            tq._divid_patched = True
+
+        if not getattr(tq, '_trading_dates_patched', False):
+            orig_td = getattr(tq, 'get_trading_dates', None)
+            if orig_td is not None:
+                def safe_get_trading_dates(cls, market='SH', start_time='', end_time='', count=-1):
+                    return orig_td(market=market, start_time=start_time or '', end_time=end_time or '', count=count)
+                tq.get_trading_dates = classmethod(safe_get_trading_dates)
+            tq._trading_dates_patched = True
+
+        if not getattr(tq, '_ipo_patched', False):
+            orig_ipo = getattr(tq, 'get_ipo_info', None)
+            if orig_ipo is not None:
+                def safe_get_ipo_info(cls, ipo_type=0, ipo_date=0, date_type=None):
+                    d_type = ipo_date if date_type is None else date_type
+                    try:
+                        return orig_ipo(ipo_type=ipo_type, date_type=d_type)
+                    except TypeError:
+                        return orig_ipo(ipo_type=ipo_type, ipo_date=d_type)
+                tq.get_ipo_info = classmethod(safe_get_ipo_info)
+            tq._ipo_patched = True
+
+        if not getattr(tq, '_refresh_cache_patched', False):
+            orig_rc = getattr(tq, 'refresh_cache', None)
+            if orig_rc is not None:
+                def safe_refresh_cache(cls, *args, **kwargs):
+                    try:
+                        res = orig_rc(*args, **kwargs)
+                    except TypeError:
+                        res = orig_rc()
+                    if isinstance(res, str) and not res.strip().startswith('{'):
+                        raise TdxDataError(f"刷新缓存行情异常: {res}")
+                    return res
+                tq.refresh_cache = classmethod(safe_refresh_cache)
+            tq._refresh_cache_patched = True
+
+        if not getattr(tq, '_unsubscribe_hq_patched', False):
+            orig_unsub = getattr(tq, 'unsubscribe_hq', None)
+            if orig_unsub is not None:
+                def safe_unsubscribe_hq(cls, *args, **kwargs):
+                    res = orig_unsub(*args, **kwargs)
+                    if isinstance(res, str) and not res.strip().startswith('{'):
+                        raise TdxOperationUnknownError(f"取消订阅异常: {res}")
+                    return res
+                tq.unsubscribe_hq = classmethod(safe_unsubscribe_hq)
+            tq._unsubscribe_hq_patched = True
+
+        if not getattr(tq, '_user_block_patched', False):
+            orig_user_block = getattr(tq, 'send_user_block', None)
+            if orig_user_block is not None:
+                def safe_send_user_block(cls, block_code='', stocks=None, stock_list=None, show=False):
+                    s_list = stocks if stocks is not None else (stock_list or [])
+                    try:
+                        return orig_user_block(block_code=block_code, stocks=s_list, show=show)
+                    except TypeError:
+                        return orig_user_block(block_code=block_code, stock_list=s_list, show=show)
+                tq.send_user_block = classmethod(safe_send_user_block)
+            tq._user_block_patched = True
 
         if not getattr(tq, '_kline_zero_date_patched', False):
             orig_kline_format = getattr(tq, '_fast_format_kline_data', None)
@@ -201,14 +388,21 @@ def patch_module(mod) -> None:
 
 
 def load_sdk(tdx_path: str):
-    expected = (Path(tdx_path).expanduser() / 'PYPlugins' / 'sys' / 'tqcenter.py').resolve()
+    candidate_sys = (Path(tdx_path).expanduser() / 'PYPlugins' / 'sys' / 'tqcenter.py').resolve()
+    candidate_user = (Path(tdx_path).expanduser() / 'PYPlugins' / 'user' / 'tqcenter.py').resolve()
+    if candidate_sys.is_file():
+        expected = candidate_sys
+    elif candidate_user.is_file():
+        expected = candidate_user
+    else:
+        expected = candidate_sys
     if not expected.is_file():
         raise TdxInitError(f"通达信 TQ 插件不存在: {expected}")
     existing = sys.modules.get('tqcenter')
     if existing is not None:
-        origin = getattr(existing, '__file__', None)
-        if not origin or Path(origin).resolve() != expected:
-            raise TdxInitError("进程已加载其他目录的 tqcenter；请使用新进程切换 SDK 路径")
+        loaded = Path(getattr(existing, '__file__', '')).resolve()
+        if loaded != expected:
+            raise TdxInitError(f"已加载的通达信 SDK 路径 ({loaded}) 与当前请求 ({expected}) 不一致，请在新进程中切换")
         patch_module(existing)
         return existing
     added = []
@@ -242,7 +436,34 @@ class TqAdapter:
         self.module = module
         self.raw = module.tq
 
+    @property
+    def profile(self) -> str:
+        dll = getattr(self.module, 'dll', None)
+        evidence = getattr(dll, '_rpc_evidence_functions', set()) if dll is not None else set()
+        if 'GetTdxDataStr' in evidence or 'TdxFuncMain' in evidence or hasattr(self.raw, 'formula_zb'):
+            return 'sys_unified'
+        if 'GetHISDATsInStr' in evidence or 'SubscribeHQDUpdate' in evidence or hasattr(self.raw, 'print_to_tdx'):
+            return 'user_tpythclient'
+        if dll is not None:
+            if hasattr(dll, 'GetTdxDataStr') or hasattr(dll, 'TdxFuncMain'):
+                return 'sys_unified'
+            if hasattr(dll, 'GetHISDATsInStr') or hasattr(dll, 'SubscribeHQDUpdate'):
+                return 'user_tpythclient'
+        return 'custom'
+
+    def has_capability(self, method_name: str) -> bool:
+        return bool(hasattr(self.raw, method_name))
+
     def __getattr__(self, name):
+        if not hasattr(self.raw, name):
+            if name in KNOWN_OPTIONAL_SDK_METHODS:
+                def unsupported(*args, **kwargs):
+                    raise TdxUnsupportedCapabilityError(
+                        f"当前加载的通达信 SDK ({self.profile}) 未提供 {name} 接口",
+                        details={'method': name, 'sdk_profile': self.profile}
+                    )
+                return unsupported
+            raise AttributeError(f"'{type(self).__name__}' object and underlying SDK have no attribute '{name}'")
         value = getattr(self.raw, name)
         if not callable(value):
             return value
@@ -262,13 +483,22 @@ class TqAdapter:
         started = time.monotonic()
         patch_module(self.module)
         trace = RpcTrace(name)
+        if name == 'stock_account' and (getattr(self.module, 'dll', None) is None or not hasattr(getattr(self.module, 'dll', None), 'GetOrderStr')):
+            trace.account_unavailable = True
         token = ACTIVE_TRACE.set(trace)
         try:
             dll = getattr(self.module, 'dll', None)
             native = dll is not None
             if native and name in SIDE_EFFECT_ENDPOINTS:
                 endpoint = SIDE_EFFECT_ENDPOINTS[name][0]
-                if endpoint not in dll._rpc_evidence_functions:
+                evidence_funcs = getattr(dll, '_rpc_evidence_functions', set())
+                has_endpoint = (
+                    endpoint in evidence_funcs
+                    or (endpoint == 'SetMsgToMain' and any(f in evidence_funcs for f in ('SetResToMain', 'UserBlockControl', 'SubscribeHQDUpdate')))
+                    or (endpoint == 'GetTdxDataStr' and any(f in evidence_funcs for f in ('ReFreshCacheAll', 'ReFreshCacheKLine', 'DownLoadFiles')))
+                    or (name == 'order_stock' and 'SetNewOrder' in evidence_funcs)
+                )
+                if not has_endpoint:
                     raise TdxInitError(f"SDK 缺少可核实的 {endpoint} 接口，拒绝发出操作")
             # A binding failure occurs before invoking the SDK, not after dispatch.
             if name in TRADE_METHODS:
@@ -313,7 +543,24 @@ class TqAdapter:
             logger.debug('sdk method=%s duration_ms=%.1f', name, (time.monotonic() - started) * 1000)
 
     def diagnostics(self) -> dict:
-        return {'loaded_module_path': str(Path(self.module.__file__).resolve()),
-                'dll_path': str(getattr(self.raw, 'dll_path', '')),
-                'observed_native_functions': getattr(getattr(self.module, 'dll', None), '_rpc_evidence_functions', []),
-                'methods': sorted(n for n in dir(self.raw) if not n.startswith('_') and callable(getattr(self.raw, n)))}
+        mod_file = getattr(self.module, '__file__', None)
+        sha256 = None
+        if mod_file:
+            p = Path(mod_file)
+            if p.is_file():
+                try:
+                    sha256 = hashlib.sha256(p.read_bytes()).hexdigest()
+                except OSError:
+                    pass
+        capabilities = {
+            method: self.has_capability(method)
+            for method in sorted(KNOWN_OPTIONAL_SDK_METHODS)
+        }
+        return {
+            'loaded_module_path': str(Path(self.module.__file__).resolve()) if mod_file else '',
+            'dll_path': str(getattr(self.raw, 'dll_path', '')),
+            'observed_native_functions': getattr(getattr(self.module, 'dll', None), '_rpc_evidence_functions', []),
+            'sdk_profile': self.profile,
+            'module_sha256': sha256,
+            'capabilities': capabilities,
+        }

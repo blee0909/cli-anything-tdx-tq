@@ -15,21 +15,35 @@ from .errors import (TdxAccountStateUnknownError, TdxDataError,
 
 TRADE_METHODS = {'order_stock', 'cancel_order_stock'}
 ACK_METHODS = {
-    'exec_to_tdx', 'send_message', 'send_warn', 'send_user_block',
+    'exec_to_tdx', 'send_message', 'send_file', 'send_warn', 'send_bt_data',
+    'subscribe_hq', 'unsubscribe_hq', 'send_user_block',
     'create_sector', 'delete_sector', 'rename_sector', 'clear_sector',
     'refresh_cache', 'refresh_kline', 'download_file',
 }
 SIDE_EFFECT_ENDPOINTS = {
     'order_stock': ('GetOrderStr', '4'), 'cancel_order_stock': ('GetOrderStr', '5'),
     'exec_to_tdx': ('SetMsgToMain', '15'), 'send_message': ('SetMsgToMain', '2'),
-    'send_warn': ('SetMsgToMain', '4'), 'send_user_block': ('SetMsgToMain', '1'),
+    'send_file': ('SetMsgToMain', '3'), 'send_warn': ('SetMsgToMain', '4'),
+    'send_bt_data': ('SetMsgToMain', '5'), 'subscribe_hq': ('SetMsgToMain', '6'),
+    'unsubscribe_hq': ('SetMsgToMain', '7'),
+    'send_user_block': ('SetMsgToMain', '1'),
     'create_sector': ('SetMsgToMain', '11'), 'delete_sector': ('SetMsgToMain', '12'),
     'rename_sector': ('SetMsgToMain', '13'), 'clear_sector': ('SetMsgToMain', '14'),
     'refresh_cache': ('GetTdxDataStr', '16'), 'refresh_kline': ('GetTdxDataStr', '17'),
     'download_file': ('GetTdxDataStr', '18'),
 }
-NATIVE_FUNCTIONS = ('GetTdxDataStr', 'GetProDataInStr', 'TdxFuncMain',
-                    'GetOrderStr', 'SetMsgToMain')
+NATIVE_FUNCTIONS = (
+    # v2 (sys_unified)
+    'GetTdxDataStr', 'GetProDataInStr', 'TdxFuncMain', 'GetOrderStr', 'SetMsgToMain',
+    # v1 (user_tpythclient)
+    'InitConnect', 'CloseConnect', 'SetResToMain', 'UserBlockControl',
+    'ReFreshCacheAll', 'ReFreshCacheKLine', 'DownLoadFiles',
+    'GetSTOCKInStr', 'GetREPORTInStr', 'GetHISDATsInStr', 'GetCWDATAInStr',
+    'GetStockListInStr', 'GetBlockListInStr', 'GetBlockStocksInStr',
+    'GetTradeCalendarInStr', 'GetUserBlockInStr', 'GetCBINFOInStr',
+    'GetIPOINFOInStr', 'SetNewOrder', 'SubscribeGPData', 'SubscribeHQDUpdate',
+    'Register_DataTransferFunc',
+)
 BATCH_READ_METHODS = {'get_market_data', 'get_financial_data', 'get_financial_data_by_date', 'get_gp_one_data'}
 ACTIVE_TRACE = ContextVar('tdx_rpc_trace', default=None)
 
@@ -75,10 +89,28 @@ class RpcTrace:
             request_type = str(request['type']) if 'type' in request else None
         except (IndexError, TypeError, ValueError):
             request_type = None
+        if function == 'GetHISDATsInStr' and len(args) > 1:
+            try:
+                request_type = args[1].decode('utf-8', errors='ignore') if isinstance(args[1], bytes) else str(args[1])
+            except Exception:
+                pass
+        elif function == 'SetNewOrder':
+            request_type = 'SetNewOrder'
+
         endpoint, request_id = SIDE_EFFECT_ENDPOINTS.get(self.method, (None, None))
-        mutation = function == endpoint and request_type in (request_id, None)
-        if self.method in TRADE_METHODS and function == endpoint:
+        fn_match = (
+            function == endpoint
+            or (endpoint == 'SetMsgToMain' and function in ('SetResToMain', 'UserBlockControl', 'SubscribeHQDUpdate'))
+            or (endpoint == 'GetTdxDataStr' and function in ('ReFreshCacheAll', 'ReFreshCacheKLine', 'DownLoadFiles'))
+            or (self.method == 'order_stock' and function == 'SetNewOrder')
+        )
+        if function == 'SetNewOrder':
+            mutation = True
+        elif self.method in TRADE_METHODS and function == endpoint:
             mutation = request_type not in ('0', '1', '2', '3')
+        else:
+            mutation = fn_match and request_type in (request_id, None)
+
         call = NativeCall(function, request_type, mutation)
         self.last_call = call
         self.dispatched |= mutation
@@ -90,6 +122,9 @@ class RpcTrace:
             self.failure = NativeFailure(call, kind, error_id)
 
     def response(self, call, value):
+        if call.function in ('CloseConnect', 'Register_DataTransferFunc'):
+            self.confirmed_reply = True
+            return
         if value is None or value == b'' or value == '':
             self.fail(call, 'empty_response')
             return
@@ -120,6 +155,10 @@ class RpcTrace:
             self.account_unavailable = True
             return
         if code != '0':
+            if self.method in BATCH_READ_METHODS and call.function == 'GetHISDATsInStr':
+                stock_name = call.request_type or 'unknown'
+                self.item_errors[stock_name] = {'code': code, 'message': obj.get('Error', 'Rejected')}
+                return
             self.fail(call, 'rejected', code)
             return
         self.confirmed_reply = True

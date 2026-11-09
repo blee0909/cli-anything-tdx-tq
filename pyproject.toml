@@ -23,6 +23,7 @@ dependencies = ["click>=8.0", "pandas>=2.2", "numpy>=1.26", "openpyxl>=3.1"]
 
 [project.optional-dependencies]
 test = ["pytest>=8", "pytest-cov>=7"]
+parquet = ["pyarrow>=18.0"]
 
 [project.scripts]
 cli-anything-tdx-tq = "cli_anything.tdx_tq.tdx_tq_cli:main"

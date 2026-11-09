@@ -41,8 +41,12 @@ COMMANDS = [
     ['formula','xg','-n','MA','-s','600519.SH'],
     ['formula','exp','-n','BBI'],
     ['formula','exp','-n','BBI','-s','600519.SH'],
+    ['formula','eval','-e','MA(C, 1)','-s','600519.SH'],
     ['client','link','-s','600519.SH'], ['client','warn','-s','600519.SH','-m','测试'],
     ['client','msg','-m','测试'],
+    ['client','file','-f',__file__],
+    ['client','bt','-s','600519.SH','--times','20261020','--data','1.0,2.0'],
+    ['market','watch','-s','600519.SH','--max-events','1','--duration','0.2'],
     ['client','download','-s','688318.SH','--type','1'],
     ['trade','account'], ['trade','asset'], ['trade','positions'], ['trade','orders'],
     ['trade','order','-s','600519.SH','-t','buy','-v','100','-p','10','--confirm'],
@@ -92,6 +96,7 @@ class SDK:
             'query_stock_asset':{'cash':1}, 'query_stock_positions':[{'code':'600519.SH'}],
             'query_stock_orders':[{'order_id':'fake'}],
             'order_stock':{'ErrorId':'0','order_id':'fake'}, 'cancel_order_stock':{'ErrorId':'0'},
+            'subscribe_hq': 1, 'unsubscribe_hq': 1, 'send_file': 1, 'send_bt_data': 1, 'print_to_tdx': 1,
         }
         from cli_anything.tdx_tq.core.protocol import ACK_METHODS
         for method in ACK_METHODS:
@@ -102,6 +107,8 @@ class SDK:
             self.calls.append((name,args,kwargs))
             if self.failure:
                 raise RuntimeError('simulated failure')
+            if name == 'subscribe_hq' and 'callback' in kwargs and callable(kwargs['callback']):
+                kwargs['callback']('{"Code": "600519.SH", "Now": 1800.0}')
             return responses[name]
         return call
 
@@ -220,7 +227,13 @@ def test_command_failure_is_json(args, fake_session):
     assert isinstance(error['retryable'],bool)
 
 
-@pytest.mark.parametrize('args', [['init'],['close'],['status'],['config','show']])
+@pytest.mark.parametrize('args', [
+    ['init'], ['close'], ['status'],
+    ['config', 'show'], ['config', 'detect'],
+    ['daemon', 'status'], ['daemon', 'stop'],
+    ['formula', 'list', '--local'],
+    ['formula', 'info', '-c', 'MACD', '--local'],
+])
 @pytest.mark.parametrize('as_json',[True,False])
 def test_local_commands_without_sdk(args,as_json):
     # status/config/close must not import or initialize tqcenter.

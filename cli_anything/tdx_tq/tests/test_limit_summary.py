@@ -137,6 +137,8 @@ def test_cli_rejects_bad_code_before_connecting(monkeypatch):
 def test_live_limit_dates_match_client_fields():
     from cli_anything.tdx_tq.core.session import session
     session.ensure_initialized()
+    if not session.tdx.has_capability('get_zdt_data') or not session.tdx.has_capability('get_more_info'):
+        pytest.skip(f"当前 SDK ({session.tdx.profile}) 未提供 get_zdt_data/get_more_info")
     result = get_limit_summary(session.tdx, [S])[S]
     info = session.tdx.get_more_info(stock_code=S, field_list=['ZTDate_Recent', 'DTDate_Recent'])
     for output, field in [('last_limit_up_date', 'ZTDate_Recent'), ('last_limit_down_date', 'DTDate_Recent')]:

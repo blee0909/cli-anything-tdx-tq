@@ -34,6 +34,7 @@ uv.lock
 .coverage.*
 coverage.json
 coverage.xml
+cov*.json
 htmlcov/
 /junit*.xml
 
@@ -46,6 +47,12 @@ htmlcov/
 *.log
 *.tmp
 *.bak
+*.sp
+*.jsn
+*.parquet
+*.csv
+*.jsonl
+*.xlsx
 
 # Local configuration (keep shareable templates)
 .env

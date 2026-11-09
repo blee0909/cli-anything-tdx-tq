@@ -1,75 +1,56 @@
 # SDK 返回值与执行状态契约
 
-本表对应当前支持的 Windows TQ SDK，适配点为 core/sdk.py 和 core/protocol.py。供应商 Python 层会把不同错误折叠为 -1、{}、[] 或 None，适配器在五个原生 RPC 函数及分页 JSON 解析边界保存单次调用的协议证据。
+本表覆盖当前支持的双代际 Windows TQ SDK（`user_tpythclient` 与 `sys_unified`），适配点为 `core/sdk.py` 与 `core/protocol.py`。供应商 Python 层会把不同错误折叠为 `-1`、`{}`、`[]`、`None` 或普通中文提示字符串，适配器在原生 DLL 函数与分页 JSON 解析边界保存单次调用的协议证据。
 
-| 接口组 | 成功结果 | 合法空结果 | 失败或无法确认 |
+| 接口组 | 成功结果 | 合法空结果 | 失败、不支持或无法确认 |
 | --- | --- | --- | --- |
-| stock_account | 非布尔的非负整数句柄 | 账户查询原生 GetOrderStr/type=0 的 ErrorId=9，或成功回执 Value=-1，可返回 -1 | 无对应依据的 -1、错误类型、空响应、其他原生错误：ACCOUNT_STATE_UNKNOWN |
-| query_stock_asset | 非空字典，并存在成功原生回执 | 不接受 {} 作为可用资产信息 | 原生失败或数据形态错误：SDK_DATA_ERROR |
-| query_stock_positions、query_stock_orders | 列表，并存在成功原生回执 | 成功回执确认的 [] 有效 | 传输失败与无可核实回执不能解释为空持仓或空委托 |
-| get_financial_data、get_financial_data_by_date、get_gpjy_value、get_bkjy_value、get_scjy_value、get_gpjy_value_by_date、get_bkjy_value_by_date、get_scjy_value_by_date、get_gp_one_data、formula_exp、formula_process_mul_exp | 字典，并存在成功原生回执 | 成功回执确认的 {} 可表达数据缺失 | 原生失败或数据类型错误必须失败；financial get/by-date/one 在命令层进一步核对证券、请求字段与完整性；trading 统计支持日期与区间双模式 |
-| get_relation、get_ipo_info、get_trackzs_etf_info、get_gb_info_by_date | 列表，并存在成功原生回执 | 成功回执确认的 [] 有效 | 原生失败或数据类型错误必须失败；gb 支持日期列表与起止日期区间双模式 |
-| get_market_snapshot、get_market_data、get_stock_info | 可用的非空结果 | 不接受必要数据为空 | 原生错误、必要数据缺失必须失败 |
-| 其他读取 | 保留 SDK 既有结果结构 | 不统一禁止空集合 | 捕获到原生错误时失败；本表尚未逐字段约束全部供应商返回类型 |
-| order_stock、cancel_order_stock | 字典，且有效 ErrorId=0；代表 SDK 受理 | 无 | 明确负回执为 SDK_DATA_ERROR；发出后空响应、畸形回执、传输/执行中断为 TRADE_STATE_UNKNOWN |
-| 客户端、板块、缓存操作、文件下载 (download_file) | 字典或 JSON 字符串包含有效 ErrorId=0，保留原结果类型 | 无 | 明确负回执失败；发出后不能确认则 OPERATION_STATE_UNKNOWN |
+| 当前 SDK 缺失的可选方法 (`KNOWN_OPTIONAL_SDK_METHODS`) | — | — | 未进入 DLL，立即抛出 `UNSUPPORTED_SDK_CAPABILITY`（附 `method` 与 `sdk_profile`），绝不伪造返回数据 |
+| `stock_account` | 非布尔的非负整数句柄 | 账户查询原生 `GetOrderStr/type=0` 的 `ErrorId=9`，或成功回执 `Value=-1`，可返回 `-1` | 无对应依据的 `-1`、错误类型、空响应、其他原生错误：`ACCOUNT_STATE_UNKNOWN`；`user_tpythclient` 无该方法时返回 `UNSUPPORTED_SDK_CAPABILITY` |
+| `query_stock_asset` | 非空字典，并存在成功原生回执 | 不接受 `{}` 作为可用资产信息 | 原生失败或数据形态错误：`SDK_DATA_ERROR` |
+| `query_stock_positions`、`query_stock_orders` | 列表，并存在成功原生回执 | 成功回执确认的 `[]` 有效 | 传输失败与无可核实回执不能解释为空持仓或空委托 |
+| `get_financial_data`、`get_financial_data_by_date`、`get_gpjy_value*`、`get_bkjy_value*`、`get_scjy_value*`、`get_gp_one_data`、`formula_exp`、`formula_process_mul_exp` | 字典，并存在成功原生回执 | 成功回执确认的 `{}` 可表达数据缺失 | 原生失败或数据类型错误必须失败；命令层进一步核对证券、请求字段与完整性 |
+| `get_relation`、`get_ipo_info`、`get_trackzs_etf_info`、`get_gb_info_by_date` | 列表，并存在成功原生回执 | 成功回执确认的 `[]` 有效 | 原生失败或数据类型错误必须失败；`stock relation` 在 `user_tpythclient` 下改由本地 `T0002/hq_cache` 解析并标记 `source="local_tdx_cache"` |
+| `get_market_snapshot`、`get_market_data`、`get_stock_info` | 可用的非空结果 | 不接受必要数据为空 | 原生错误、必要数据缺失必须失败 |
+| `order_stock`、`cancel_order_stock` | 字典，且有效 `ErrorId=0`；代表 SDK 受理 | 无 | 明确负回执为 `SDK_DATA_ERROR`；发出后空响应、畸形回执、传输/执行中断为 `TRADE_STATE_UNKNOWN` |
+| 客户端、板块、实时订阅与缓存/下载操作 (`send_message`、`send_file`、`send_warn`、`send_bt_data`、`send_user_block`、`subscribe_hq`、`unsubscribe_hq`、`create/delete/rename/clear_sector`、`refresh_cache`、`refresh_kline`、`download_file`) | 字典或 JSON 字符串包含有效 `ErrorId=0`，保留原结果类型 | 无 | 明确负回执失败；供应商返回非 JSON 异常字符串或发出后不能确认则 `OPERATION_STATE_UNKNOWN` / `SDK_DATA_ERROR` |
 
-ErrorId 必须为整数或规范的数字字符串；布尔值、null、对象、非数字字符串均不是可靠确认。有效整数码在供应商方法比较前规范为数字字符串（例如整数 0 转为字符串 0），避免供应商仅接受字符串成功码而丢失 Value。原生 Value 非空而受保护读取方法返回空值时额外拒绝。SDK 传输分页 TPythPaged 可不带最终 ErrorId，其重组后的 JSON 仍需核对；分页外层明确错误不会被忽略。发生过原生失败后，后续成功或连接恢复不能抹去前面的失败证据。
+## 双代际原生函数映射
 
-客户端、板块与缓存操作及本机 SDK 的原生类型如下。映射用于识别操作边界，不会替用户发起操作或自动重试。
+映射用于识别副作用边界与协议确认，不会替用户自动重试写操作。
 
-| 方法 | 原生函数 | type |
+| SDK 方法 | `sys_unified` 原生函数 (`type`) | `user_tpythclient` 原生函数 |
 | --- | --- | --- |
-| order_stock / cancel_order_stock | GetOrderStr | 4 / 5 |
-| exec_to_tdx | SetMsgToMain | 15 |
-| send_message / send_warn / send_user_block | SetMsgToMain | 2 / 4 / 1 |
-| create_sector / delete_sector / rename_sector / clear_sector | SetMsgToMain | 11 / 12 / 13 / 14 |
-| refresh_cache / refresh_kline | GetTdxDataStr | 16 / 17 |
-| download_file | GetTdxDataStr | 18 |
+| `order_stock` | `GetOrderStr` (`4`) | `SetNewOrder` |
+| `cancel_order_stock` | `GetOrderStr` (`5`) | *(未提供)* |
+| `send_message` / `send_file` / `send_warn` / `send_bt_data` / `send_user_block` | `SetMsgToMain` (`2` / `3` / `4` / `5` / `1`) | `SetResToMain` (`MSG\|\|` / `FILE\|\|` / `WARN\|\|` / `BTR\|\|` / `XG,`) |
+| `subscribe_hq` / `unsubscribe_hq` | `SetMsgToMain` (`6` / `7`) | `SubscribeHQDUpdate` (`flag=0` / `flag=1`) |
+| `create_sector` / `delete_sector` / `rename_sector` / `clear_sector` | `SetMsgToMain` (`11` / `12` / `13` / `14`) | `UserBlockControl` (`op=1` / `2` / `3` / `4`) |
+| `refresh_cache` / `refresh_kline` / `download_file` | `GetTdxDataStr` (`16` / `17` / `18`) | `ReFreshCacheAll` / `ReFreshCacheKLine` / `DownLoadFiles` |
+| `exec_to_tdx` | `SetMsgToMain` (`15`) | *(未提供)* |
 
-原生操作接口不存在时，在调用 SDK 方法前拒绝执行。已知 SDK 在进入原生函数前拒绝参数或终止时，不会被误报为已提交后的未知状态；对于没有原生证据的替代后端，服务层在调用后发生异常时保守标记未知。
+## 会话生命周期与关闭确认契约
 
-账户查询 JSON 保留 account_id、logged_in 和 message，并新增 state：ready 表示取得可用句柄，unavailable 表示明确无可用账户。“未登录或不存在”不等价于证明用户刚刚退出登录。无法确认时退出非零，输出 ACCOUNT_STATE_UNKNOWN，不输出确定的 logged_in=false。ErrorId=9 的解释仅适用于上述账户查询协议，不能复用于其他方法或无验证的新供应商版本。
+`Session.state` 显式区分 `uninitialized`、`initializing`、`ready`、`closing`、`closed` 与 `failed`：
+- 初始化中途异常时尽力执行底层释放并将状态置为 `failed`；
+- `Session.close()` 调用供应商 `close()` 后额外检查 `raw._initialized`：若供应商 `_auto_close()` 内部捕获了 `CloseConnect` 异常并保持 `_initialized=True`，`Session.close()` 立即抛出 `SDK_UNAVAILABLE`（`底层 SDK 未确认关闭连接`），拒绝向 CLI 调用方返回虚假的 `success=true`。
 
-错误 JSON 保留 success、error、error_type、error_code、retryable，取得原生证据时附加 details：method、native_function、request_type、failure_kind、sdk_error_id、dispatch_started。dispatch_started 只表示已进入可能发送操作的原生边界，不证明服务端已经执行。details 不保存账户号、请求参数、委托内容或原始响应正文；供应商自身的诊断仍可能进入 stderr。
+## 常驻守护进程 (`daemon`) 与可抢占超时 (`--timeout`) 契约
 
-TRADE_STATE_UNKNOWN 与 OPERATION_STATE_UNKNOWN 的 retryable 为 false。读取超时为 SDK_TIMEOUT、retryable=true，表示调用方可以在核对条件后决定重试；CLI 本身不自动重试。未知委托必须先查询核对；查询本身失败时，不能推断该委托不存在。
+- **`daemon start/stop/status/serve`**：在用户配置目录（与 `config.json` 同级）维护原子 `daemon.json` 状态文件，仅监听 `127.0.0.1` 并强制校验 256-bit 随机令牌与 `tdx_path` 一致性。守护进程内以互斥锁串行化所有 `TPythClient.dll` 调用并持久保持 `Session` 连接不释放，空闲超时或收到 `stop` 指令时自动调用 `session.close()` 并清理状态文件。
+- **`--timeout <秒>` 可抢占截止时间**：
+  - 读取类命令超时终止后返回 `SDK_TIMEOUT`（`retryable=true`）；
+  - 交易写操作（`trade order --confirm`、`trade cancel`）发出后超时或连接中断，严格返回 `TRADE_STATE_UNKNOWN`（`retryable=false`），绝不自动回退重发；
+  - 客户端/板块/缓存写操作发出后超时或连接中断，严格返回 `OPERATION_STATE_UNKNOWN`（`retryable=false`）。
 
-除权除息 JSON 通过统一序列化器保留 SDK 的 Date 索引，日期使用 ISO 格式。K 线、财务等其他接口继续保留各自已有字段结构。
+## 实时订阅流、分块批处理与宽表契约
 
-当前仍没有跨进程幂等提交、持久化操作日志、账户并发协调或可抢占的整体 deadline。真实集成测试只读取客户端；交易、撤单、板块和 GUI 写操作使用内存原生函数替身。协议兼容性仅针对已验证本机 SDK，其他版本须补充兼容验证。
+- **`market watch`**：订阅上限为 100 只标的（超出在连接前返回 `INVALID_PARAMETER`）。C 回调函数 `on_data(datas)` 仅将原始事件推入内存队列，由主线程按 `--debounce-ms` 防抖后拉取 `get_market_snapshot`，并在 `finally` 块保证调用 `unsubscribe_hq`。
+- **`market get --chunk-size` 与多格式导出**：大批量证券支持按 `chunk_size` 切片调用并向 `stderr` 输出进度；部分停牌空分块不会中断其余有效分块，最终统一交由 `assess_market` 执行严格或 `--allow-partial` 核验。原子导出支持 `.csv`、`.json`、`.jsonl`（`.ndjson`）、`.xlsx` 与 `.parquet`（需安装可选依赖 `pyarrow`）。
+- **`market get --pivot`**：在完成严格或 `--allow-partial` 数据完整性核验后，将可用 K 线重排为以 `date` 为索引、请求证券顺序为列的宽表；`--fill` 仅允许 `none`（默认）或 `ffill`，禁止 `bfill` 未来数据回填。
+- **批量完整性信封（`schema_version=1`）**：适用于 `market get`、`market snapshot`、`financial get`、`financial by-date`、`financial one` 与 `financial trading` 的 `--allow-partial` 模式，字段语义保持向后兼容。
 
-## 涨跌停最近事件日期
+## 本地向量化公式引擎与策略联动契约 (`formula eval` / `formula * --local`)
 
-`market zdt -s 002242.SZ --json` 保留 `{证券代码: {当天明细字段}}` 的结构，在每只证券内新增 `last_limit_up_date`、`last_limit_down_date` 和 `history`。前两者为 ISO 日期（YYYY-MM-DD）或 null；分别读取 `get_more_info` 的 `ZTDate_Recent` 和 `DTDate_Recent`，不根据涨跌幅、板数或当前状态推算日期。
-
-`history.scope=sdk_recent_events`，`source=get_more_info`，`as_of` 为客户端 `HqDate`（缺失时为 null，不用本机日期代替）。官方将字段描述为近两年，故 `documented_lookback_years=2`；本机实测也会返回更早事件，保留原值，并在 `outside_documented_window` 列出早于行情日期往前两年的日期字段名。行情日期缺失时不进行范围比对。此标记只说明文档与返回范围的差异，不保证完整历史。
-
-`limit_up_status` / `limit_down_status` 分别为 `found`（有效日期）、`no_record`（SDK 明确返回 0 或 00000000）或 `unavailable`（缺字段、空串或 null）。零值只表示接口没有给出事件日期，不能证明全历史无事件；字段缺失也不能证明需要付费。SDK 没有进一步区分的盘中触板、收盘封板口径不由 CLI 自行推断。
-
-当天数据缺少请求证券、日期格式无效、事件晚于行情日期或读取发生 SDK 错误时，命令退出非零，不输出伪造日期。多证券请求按输入顺序返回；读取额外日期字段需要每只证券调用一次 `get_more_info`。当前功能不返回全历史事件列表，也不提供历史截止日期查询。
-
-字段范围依据[通达信官方字段说明](https://help.tdx.com.cn/quant/docs/markdown/mindoc-1hjbidnohpjn4/mindoc-1hlir5r0t9hgc.html)。
-
-## 批量读取完整性与日期模式
-
-market get、financial get、financial by-date 使用单次调用返回的 metadata，不通过全局 last_result 保存批量错误。适配器在原生回执和重组解析边界提取 Errors 字典，保留逐证券 code/message（消息最长 500 字符）；后续页面成功不能抹掉先前的逐项错误。此处错误消息属于读取诊断，不包含交易请求参数或原始回执正文。
-
-market get 默认尾部数量 60；提供 --start 后切换为区间模式，内部 count=-1。显式 --count 与 --start 同时出现时，在连接 SDK 前返回 INVALID_PARAMETER。八位 --end 展开至 23:59:59；返回日期必须有效且位于请求边界内。关闭供应商 fill_data，不用前值补齐行情缺口。
-
-完整结果继续返回既有证券字典。K 线可用记录至少具有有限 close 值，全空列不算可用证券；财务按大小写不敏感的请求字段逐值核对，None/NA/NaT/非有限数值/空串/-- 不算可用，零为有效数据。财务字段空列表在连接前失败。没有任何请求字段值的行被排除，原数据不会被原地修改。财务的有意义索引保留，默认 RangeIndex 不额外生成人为 index 字段。
-
-默认不完整结果退出 1，error_code=DATA_INCOMPLETE、retryable=false，details 包含完整性说明，data 保留已验证的可用部分。--allow-partial 仅在至少有部分可用数据时允许退出 0；该选项的成功输出始终为 JSON 信封，即使没有 --json。完整结果使用该选项时也使用同一信封，partial=false。
-
-| 信封或 details 字段 | 含义 |
-| --- | --- |
-| schema_version / success / data | 成功信封版本 1、成功标志、可用数据；错误输出沿用既有错误顶层结构 |
-| partial | 是否发现缺失证券/字段/值、被丢弃记录、额外证券或 SDK 逐项错误 |
-| requested_stocks / available_stocks / missing_stocks | 请求顺序及实际可用/不可用证券；键存在不证明有数据 |
-| missing_fields / missing_values | 全部不可用的请求字段，以及各请求字段缺失值数量；K 线最低必要字段为 close |
-| record_counts / dropped_records | 各证券可用记录数及因必要数据缺失排除的记录数 |
-| errors / unexpected_stocks / warnings | 原生逐项错误、响应中额外证券、可读说明 |
-
-严格模式在导出前验证，失败不替换目标文件。--allow-partial 导出只写可用记录，控制台信封附带 output/format/records 和完整性元数据；CSV/XLSX/JSON 数据文件保持记录结构，元数据需从控制台信封保存。
-
-上述校验不证明完整交易日历覆盖、证券不存在、字段含义正确或客户端已同步全部财务缓存；不能把不可用数据归因为某个未经验证的根因。financial trading、公式及其他查询尚未统一套用此信封。
+- **显式引擎边界**：未传 `--local` 时，`formula list/info/zb/xg/exp` 仅调用底层 SDK 原生接口，缺失时抛出 `UNSUPPORTED_SDK_CAPABILITY`；显式传入 `--local` 或使用 `formula eval` 时，基于 `get_market_data` 真实 K 线在本地执行零 `eval` AST 向量化计算，并在响应中明确标识 `engine="local_vectorized"`。
+- **语法与安全隔离**：词法分析器与递归下降解析器仅允许算术/比较/逻辑运算与注册表内的 33 个通达信算子，拒绝属性访问、下标或任意代码执行；除零运算返回 `null`（内部 `NaN`），语法或参数错误在连接客户端前返回 `INVALID_PARAMETER`（退出码 `2`）。
+- **零误清空保护**：`formula eval` 搭配 `--push-sector` 或 `--push-temp` 时，若本次选股命中数为 `0`（`selected_stocks=[]`），跳过 `send_user_block` 并在 `actions.sector_push` 记录 `pushed=false, reason="no_selected_stocks"`，防止空结果意外清空用户既有板块。

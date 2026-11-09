@@ -1,4 +1,5 @@
 """Trading requests and responses. No automatic submission retries."""
+import inspect
 import math
 import numbers
 from dataclasses import dataclass
@@ -29,21 +30,50 @@ class OrderRequest:
         if self.price_type == 0 and self.price <= 0:
             raise TdxParamError("限价委托的价格必须大于零；市价委托需显式指定 --price-type 1")
 
-    def as_dict(self, account_id: int | None) -> dict:
+    def as_dict(self, account_id: int | str | None) -> dict:
         self.validate()
         return dict(account_id=account_id, stock=stock_code(self.stock), direction=self.direction,
                     volume=self.volume, price=self.price, price_type=self.price_type)
 
 
-def submit_order(sdk, request: OrderRequest, account_id: int) -> dict:
+def submit_order(sdk, request: OrderRequest, account_id: int | str, *, strategy_name: str = 'tdx-tq-cli', order_remark: str = '') -> dict:
     request.validate()
-    if isinstance(account_id, bool) or not isinstance(account_id, numbers.Integral) or account_id < 0:
+    if isinstance(account_id, bool):
         raise TdxParamError("交易账户 ID 无效")
+    if isinstance(account_id, numbers.Integral):
+        if account_id < 0:
+            raise TdxParamError("交易账户 ID 无效")
+    elif isinstance(account_id, str):
+        if not account_id.strip():
+            raise TdxParamError("交易账户 ID 无效")
+    else:
+        raise TdxParamError("交易账户 ID 无效")
+
+    use_v1 = False
     try:
-        result = sdk.order_stock(account_id=account_id, stock_code=stock_code(request.stock),
-                                 order_type=0 if request.direction == 'buy' else 1,
-                                 order_volume=request.volume, price_type=request.price_type,
-                                 price=request.price)
+        sig = inspect.signature(sdk.order_stock)
+        params = sig.parameters
+        has_account = 'account' in params
+        has_account_id = 'account_id' in params
+        has_varkw = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values())
+        if has_account and not has_account_id and not has_varkw:
+            use_v1 = True
+    except (TypeError, ValueError):
+        use_v1 = False
+
+    try:
+        if use_v1:
+            result = sdk.order_stock(account=str(account_id), stock_code=stock_code(request.stock),
+                                     order_type=0 if request.direction == 'buy' else 1,
+                                     order_volume=request.volume, price_type=request.price_type,
+                                     price=request.price,
+                                     strategy_name=strategy_name,
+                                     order_remark=order_remark)
+        else:
+            result = sdk.order_stock(account_id=account_id, stock_code=stock_code(request.stock),
+                                     order_type=0 if request.direction == 'buy' else 1,
+                                     order_volume=request.volume, price_type=request.price_type,
+                                     price=request.price)
     except TdxError:
         raise
     except (Exception, SystemExit, KeyboardInterrupt) as exc:

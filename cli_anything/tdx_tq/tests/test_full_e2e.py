@@ -145,14 +145,34 @@ class TestCLIStock:
 
     @pytest.mark.live
     def test_stock_gb_live(self):
-        """实测股本变动信息与有效交易日匹配"""
+        """实测股本变动信息与有效交易日匹配（user_tpythclient 下验证明确的不支持契约）"""
         result = _run_cli(['stock', 'gb', '-s', '600519.SH', '-c', '3', '--json'])
-        assert result.returncode == 0, result.stderr or result.stdout
         data = json.loads(result.stdout)
-        assert isinstance(data, list)
-        assert len(data) > 0
-        assert 'Ltgb' in data[0]
-        assert 'Zgb' in data[0]
+        if result.returncode == 0:
+            assert isinstance(data, list)
+            assert len(data) > 0
+            assert 'Ltgb' in data[0]
+            assert 'Zgb' in data[0]
+        else:
+            assert result.returncode == 1
+            assert data.get('error_code') == 'UNSUPPORTED_SDK_CAPABILITY'
+            assert data.get('details', {}).get('method') == 'get_gb_info'
+
+    @pytest.mark.live
+    def test_stock_search_pinyin_and_relation_live(self):
+        """实测拼音首字母搜索、板块关联与宽表透视"""
+        py_res = _run_cli(['stock', 'search', '-k', 'GZMT', '--json'])
+        assert py_res.returncode == 0, py_res.stderr or py_res.stdout
+        assert any(item.get('Code') == '600519.SH' for item in json.loads(py_res.stdout))
+
+        rel_res = _run_cli(['stock', 'relation', '-s', '600519.SH', '--json'])
+        assert rel_res.returncode == 0, rel_res.stderr or rel_res.stdout
+        assert len(json.loads(rel_res.stdout)) > 0
+
+        pivot_res = _run_cli(['market', 'get', '-s', '600519.SH,000001.SZ', '-c', '2', '--pivot', 'close', '--json'])
+        assert pivot_res.returncode == 0, pivot_res.stderr or pivot_res.stdout
+        rows = json.loads(pivot_res.stdout)
+        assert len(rows) == 2 and '600519.SH' in rows[0] and '000001.SZ' in rows[0]
 
 
 class TestCLISector:
@@ -178,12 +198,16 @@ class TestCLIFormula:
 
     @pytest.mark.live
     def test_formula_list_live(self):
-        """实测公式列表获取"""
+        """实测公式列表获取（user_tpythclient 下验证明确的不支持契约，绝不返回伪造公式）"""
         result = _run_cli(['formula', 'list', '--json'])
-        assert result.returncode == 0, result.stderr or result.stdout
-        formulas = json.loads(result.stdout)
-        assert len(formulas) > 50
-        assert any(f.get('acCode') == 'MA' for f in formulas)
+        payload = json.loads(result.stdout)
+        if result.returncode == 0:
+            assert len(payload) > 50
+            assert any(f.get('acCode') == 'MA' for f in payload)
+        else:
+            assert result.returncode == 1
+            assert payload.get('error_code') == 'UNSUPPORTED_SDK_CAPABILITY'
+            assert payload.get('details', {}).get('method') == 'formula_get_all'
 
 
 class TestCLITrade:
@@ -199,12 +223,16 @@ class TestCLITrade:
 
     @pytest.mark.live
     def test_trade_account_live(self):
-        """实测交易账户状态查询"""
+        """实测交易账户状态查询（user_tpythclient 下验证明确的不支持契约）"""
         result = _run_cli(['trade', 'account', '--json'])
-        assert result.returncode == 0, result.stderr or result.stdout
         data = json.loads(result.stdout)
-        assert 'logged_in' in data
-        assert isinstance(data['logged_in'], bool)
+        if result.returncode == 0:
+            assert 'logged_in' in data
+            assert isinstance(data['logged_in'], bool)
+        else:
+            assert result.returncode == 1
+            assert data.get('error_code') == 'UNSUPPORTED_SDK_CAPABILITY'
+            assert data.get('details', {}).get('method') == 'stock_account'
 
     def test_trade_order_preview(self):
         """实测交易委托安全预览模式"""

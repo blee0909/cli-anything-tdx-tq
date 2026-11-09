@@ -6,6 +6,39 @@ from pathlib import Path
 
 from .errors import TdxConfigError
 
+COMMON_TDX_PATHS = (r'D:\TDX64', r'D:\tdx', r'C:\new_tdx', r'D:\new_tdx', r'C:\tdx')
+
+
+def _safe_is_dir(path: Path | str | None) -> bool:
+    if not path:
+        return False
+    try:
+        return Path(path).is_dir()
+    except OSError:
+        return False
+
+
+def _safe_is_file(path: Path | str | None) -> bool:
+    if not path:
+        return False
+    try:
+        return Path(path).is_file()
+    except OSError:
+        return False
+
+
+def _safe_exists(path: Path | str | None) -> bool:
+    if not path:
+        return False
+    try:
+        return Path(path).exists()
+    except OSError:
+        return False
+
+
+def discover_tdx_paths() -> list[dict]:
+    return Config.discover_tdx_paths()
+
 
 class Config:
     DEFAULT_TDX_PATH = r'D:\tdx'
@@ -26,7 +59,7 @@ class Config:
         return value.strip()
 
     def _load_from_file(self) -> None:
-        if not self._config_file.exists():
+        if not _safe_exists(self._config_file):
             return
         try:
             data = json.loads(self._config_file.read_text(encoding='utf-8'))
@@ -60,6 +93,27 @@ class Config:
         self.load_error = None
         return self._config_file
 
+    @classmethod
+    def discover_tdx_paths(cls) -> list[dict]:
+        discovered = []
+        for candidate in COMMON_TDX_PATHS:
+            p = Path(candidate)
+            sys_file = p / 'PYPlugins' / 'sys' / 'tqcenter.py'
+            user_file = p / 'PYPlugins' / 'user' / 'tqcenter.py'
+            has_sys = _safe_is_file(sys_file)
+            has_user = _safe_is_file(user_file)
+            if has_sys or has_user:
+                plugin = 'sys' if has_sys else 'user'
+                target = str(sys_file) if has_sys else str(user_file)
+                discovered.append({
+                    'path': candidate,
+                    'plugin_type': plugin,
+                    'tqcenter_path': target,
+                    'has_sys': has_sys,
+                    'has_user': has_user,
+                })
+        return discovered
+
     @property
     def config_file_path(self) -> str:
         return str(self._config_file)
@@ -85,17 +139,22 @@ class Config:
 
     @property
     def sys_path(self) -> str:
-        return os.path.join(self.pyplugins_path, 'sys')
+        sys_dir = os.path.join(self.pyplugins_path, 'sys')
+        user_dir = os.path.join(self.pyplugins_path, 'user')
+        if not _safe_is_dir(sys_dir) and _safe_is_dir(user_dir):
+            return user_dir
+        return sys_dir
 
     def validate_paths(self) -> bool:
-        return all(Path(p).is_dir() for p in (self.tdx_path, self.pyplugins_path, self.sys_path))
+        return all(_safe_is_dir(p) for p in (self.tdx_path, self.pyplugins_path, self.sys_path))
 
     def get_status(self) -> dict:
-        return {'tdx_path': self.tdx_path, 'tdx_exists': Path(self.tdx_path).is_dir(),
-                'pyplugins_path': self.pyplugins_path, 'pyplugins_exists': Path(self.pyplugins_path).is_dir(),
-                'sys_path': self.sys_path, 'sys_exists': Path(self.sys_path).is_dir(),
-                'config_file': str(self._config_file), 'config_file_exists': self._config_file.exists(),
-                'source': self.source, 'load_error': self.load_error}
+        return {'tdx_path': self.tdx_path, 'tdx_exists': _safe_is_dir(self.tdx_path),
+                'pyplugins_path': self.pyplugins_path, 'pyplugins_exists': _safe_is_dir(self.pyplugins_path),
+                'sys_path': self.sys_path, 'sys_exists': _safe_is_dir(self.sys_path),
+                'config_file': str(self._config_file), 'config_file_exists': _safe_exists(self._config_file),
+                'source': self.source, 'load_error': self.load_error,
+                'discovered_paths': self.discover_tdx_paths()}
 
 
 config = Config()
